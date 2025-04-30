@@ -10,20 +10,6 @@ import {
   deleteUserInfo // deleteUserInfo をインポート
 } from './kame_buttler';
 
-/*
-describe('POST /', () => {
-  it('should return 200 OK', (done) => {
-    request(app)
-      .post('/')
-      .send({})
-      .expect(200)
-      .end((err: any, res: any) => {
-        if (err) return done(err);
-        done();
-      });
-  });
-});
-*/
 
 describe('getReplyMessage', () => {
   it('should return a greeting message when the input is "こんにちは"', () => {
@@ -157,7 +143,8 @@ describe('getUserInfoHandler in Test Env', () => {
 });
 
 
-describe('Firebase Realtime Database and Spreadsheet Integration Tests', () => {
+describe('Firebase Realtime Database and Spreadsheet Integration Tests', function() {
+  this.timeout(5000);
   const userId = 'integrationTestUser'; // 他のテストと重複しないIDを使用
   const testMessage = 'This is an integration test message.';
   const testUserInfo = {
@@ -166,10 +153,10 @@ describe('Firebase Realtime Database and Spreadsheet Integration Tests', () => {
     chatHistory: [],
     recentTopics: [],
     preferences: {
-    favoriteFood: 'Ramen', // テスト用のデータ
-    language: 'English',
-  },
-};
+      favoriteFood: 'Ramen', // テスト用のデータ
+      language: 'English',
+    },
+  };
 
   // 各テストの前にユーザー情報を削除してクリーンな状態にする
   beforeEach(async () => {

@@ -2,10 +2,11 @@
   "name": "kame-buttler",
   "version": "1.0.0",
   "description": "AI Kame Buttler",
-  "main": "kame_butler.js",
+  "main": "./dist/kame_buttler.js",
   "scripts": {
-    "start": "node kame_butler.js",
-    "test": "mocha -r ts-node/register kame_buttler.test.ts"
+    "start": "node ./dist/kame_buttler.js",
+    "test": "mocha -r ts-node/register -r dotenv/config kame_buttler.test.ts",
+    "build": "tsc"
   },
   "author": "takimotonaoya",
   "license": "ISC",

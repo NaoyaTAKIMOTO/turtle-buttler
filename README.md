@@ -1,5 +1,46 @@
 # AI カメ執事 LINE Bot
 
+## プロジェクト概要
+- プロジェクト名: Kame Buttler
+- バージョン: 1.0.0
+- 説明: AI Kame Buttlerは、LINE Botを通じてユーザーと対話し、FirebaseやGoogle Sheetsを利用してデータを管理するアプリケーションです。
+
+## セットアップ手順
+- 必要な環境変数を設定するために、`.env`ファイルを作成し、以下の情報を記載します。
+  - `CREDENTIALS_ADMIN_BASE64`
+  - `FIREBASE_URL`
+  - `CHANNEL_ACCESS`
+  - `CHANNEL_SECRET`
+  - `CO_API_KEY`
+- `credentials.json`と`credentials-admin.json`をプロジェクトルートに配置します。
+
+## 依存関係のインストール
+- プロジェクトの依存関係をインストールするには、以下のコマンドを実行します。
+  ```bash
+  npm install
+  ```
+
+## ビルドと実行
+- TypeScriptをJavaScriptにコンパイルするには、以下のコマンドを実行します。
+  ```bash
+  npm run build
+  ```
+- アプリケーションを起動するには、以下のコマンドを実行します。
+  ```bash
+  npm start
+  ```
+
+## テスト
+- テストを実行するには、以下のコマンドを使用します。
+  ```bash
+  npm test
+  ```
+
+## 主な機能
+- LINEからのメッセージを処理し、ユーザー情報をFirebaseに保存。
+- スプレッドシートにメッセージログを記録。
+- ユーザーの感情分析を行い、応答を生成。
+
 Google Apps Script (GAS) を利用して開発された LINE Messaging API ボットです。大規模言語モデル (LLM) と連携し、ユーザーからのメッセージに応答します。AI カメ執事という固有のペルソナを持ち、調査協力や悩み相談に応じます。
 
 ## 仕様 (Current Features)
@@ -31,6 +72,21 @@ Google Apps Script (GAS) を利用して開発された LINE Messaging API ボ�
     *   好きな場所
 
 ## Cloud Run へのデプロイ
+
+このプロジェクトは、Cloud Runを利用してデプロイすることができます。デプロイには`cloudrun.yaml`ファイルを使用します。このファイルには、以下のような設定が含まれています。
+
+- **サービス名**: turtle-buttler
+- **名前空間**: turtle-buttler
+- **コンテナイメージ**: asia.gcr.io/turtle-buttler/kame-buttler
+- **環境変数**:
+  - `FIREBASE_URL`: Firebase Realtime DatabaseのURL
+  - `FIREBASE_API_KEY`: FirebaseのAPIキー
+  - `SPREADSHEET_ID`: GoogleスプレッドシートのID
+  - `CO_API_KEY`: Cohere APIキー
+  - `CHANNEL_ACCESS`: LINEチャネルアクセストークン
+  - `CHANNEL_SECRET`: LINEチャネルシークレット
+  - `CREDENTIALS_ADMIN_BASE64`: Firebase Admin SDKの認証情報
+  - `PORT`: アプリケーションがリッスンするポート番号
 
 1.  **Dockerfile の準備**: プロジェクトのルートディレクトリに `Dockerfile` が存在することを確認してください。Dockerfile は、アプリケーションをコンテナ化するための手順を記述したファイルです。もし存在しない場合は、以下の内容で `Dockerfile` を作成してください。
 

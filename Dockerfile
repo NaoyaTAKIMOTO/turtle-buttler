@@ -1,24 +1,18 @@
-FROM node:18-alpine
+# 単一ステージビルド
+FROM node:20-alpine
 
-# 作業ディレクトリを設定
 WORKDIR /app
 
-# ソースコードをコピー
-COPY . .
-
-# 必要なパッケージをインストール
+# 依存関係インストール
+COPY package*.json tsconfig.json ./
 RUN npm install
 
-# 環境変数を設定
-ENV CHANNEL_ACCESS_TOKEN=${CHANNEL_ACCESS_TOKEN}
-ENV CHANNEL_SECRET=${CHANNEL_SECRET}
-ENV CO_API_KEY=${CO_API_KEY}
-ENV FIREBASE_URL=${FIREBASE_URL}
-ENV FIREBASE_API_KEY=${FIREBASE_API_KEY}
-ENV GOOGLE_API_KEY=${GOOGLE_API_KEY}
+# ソースコピー & ビルド
+COPY . .
+RUN npm run build 
 
-# ポートを設定
-EXPOSE 3000
+ENV NODE_ENV=production
 
-# 起動コマンド
-CMD ["node", "kame_butler.js"]
+EXPOSE 8080
+
+CMD ["npm", "run", "start"]

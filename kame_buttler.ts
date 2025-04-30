@@ -1,22 +1,48 @@
-import express, { Request, Response } from 'express';
+import express, { Application, Request, Response } from 'express';
 import bodyParser from 'body-parser';
 import { google } from 'googleapis';
 import fetch from 'node-fetch';
+import * as admin from 'firebase-admin';
 require('dotenv').config();
+
+// Firebase Admin SDKの初期化
+const rawAdmin = process.env.CREDENTIALS_ADMIN;
+if (!rawAdmin) throw new Error('CREDENTIALS_ADMIN が未設定です');
+const decodedAdmin = Buffer.from(rawAdmin, 'base64').toString('utf-8');
+let serviceAccount;
+try {
+  serviceAccount = JSON.parse(decodedAdmin);
+} catch (err) {
+  console.error('CREDENTIALS_ADMIN のデコード結果:', decodedAdmin);
+  throw err;
+}
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+  databaseURL: process.env.FIREBASE_URL,
+});
+
+const db = admin.database();
 
 // テスト環境用のストア
 const testUserInfoStore = new Map<string, UserInfo>();
 const testMessageStore = new Map<string, string>();
 
-const app: express.Express = express() as express.Express;
-const port: number = Number(process.env.PORT) || 3000;
+const app: Application = express();
+const port: number = 8080;
 
 app.use(bodyParser.json());
+app.post(
+  '/',
+  async (req: Request, res: Response) => {
+    await doPost(req, res);
+  }
+);
 
 export default app;
 
 // スプレッドシートのID
-const SPREADSHEET_ID: string = "1x7Cjc5U19a9AWUITL7A5D7208ATE5tIlEFWhyXo16Po";
+const SPREADSHEET_ID: string = process.env.SPREADSHEET_ID || "";
 // LINE Botのチャネルアクセストークンとチャネルシークレット
 const CHANNEL_ACCESS_TOKEN: string = process.env.CHANNEL_ACCESS || "";
 const CHANNEL_SECRET: string = process.env.CHANNEL_SECRET || "";
@@ -45,26 +71,34 @@ interface UserInfo {
  * doPost関数：HTTP POSTリクエストを処理し、LINEからのメッセージを解析して応答を返します。
  * @param {object} req - リクエストオブジェクト。POSTリクエストの情報を含みます。
  */
-export const doPost = async (req: Request, res: Response) => {
-  console.log({ message: 'Function Input', initialData: req.body });
-
-  try {
-    // LINEからのリクエストを処理
-    await handleLineRequest(req.body);
-
-    // Google Apps Script API を有効にする
-    await enableAppsScriptAPI();
-
-    res.status(200).send('OK');
-  } catch (error) {
-    // LINE以外のリクエストを処理
-    handleNonLineRequest(req, res);
+export async function doPost(req: Request, res: Response) {
+  console.log('Function Input', req.body);
+  const isLineWebhook = Array.isArray(req.body.events) && req.body.events[0]?.replyToken;
+  if (isLineWebhook) {
+    try {
+      await handleLineRequest(req.body);
+    } catch (e) {
+      console.error('handleLineRequest error', e);
+    }
+    return res.status(200).send('OK');
+  } else {
+    return handleNonLineRequest(req, res);
   }
-};
+}
 
 async function enableAppsScriptAPI() {
+  const rawCred = process.env.CREDENTIALS;
+  if (!rawCred) throw new Error('CREDENTIALS が未設定です');
+  const decodedCred = Buffer.from(rawCred, 'base64').toString('utf-8');
+  let credentials;
+  try {
+    credentials = JSON.parse(decodedCred);
+  } catch (err) {
+    console.error('CREDENTIALS のデコード結果:', decodedCred);
+    throw err;
+  }
   const auth = new google.auth.GoogleAuth({
-    keyFile: './credentials.json',
+    credentials: credentials,
     scopes: ['https://www.googleapis.com/auth/script.projects'],
   });
 
@@ -119,7 +153,11 @@ export async function handleLineRequest(body: LineRequestBody) {
   }
 
   // 応答メッセージを生成
-  const replyMessage: string = await generateReplyMessage(userMessage, userId, userInfo);
+  let replyMessage: string;
+
+  replyMessage = await generateReplyMessage(userMessage, userId, userInfo);
+
+  console.log('Reply message:', replyMessage);
 
   // メッセージをスプレッドシートに記録
   await logMessageToSpreadsheet("Bot: " + replyMessage, userId);
@@ -129,6 +167,7 @@ export async function handleLineRequest(body: LineRequestBody) {
 
   // ユーザー情報を保存
   saveUserInfoHandler(userId, userInfo);
+  console.log('DB:', userInfo);
 
   // 感情分析
   analyzeUserSentiment(userInfo, userMessage);
@@ -156,10 +195,20 @@ export async function logMessageToSpreadsheet(message: string, userId: string) {
     testMessageStore.set(userId, message);
     return;
   }
-  const auth = new google.auth.GoogleAuth({
-    keyFile: './credentials.json', // 認証情報ファイルのパス
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  });
+  let auth: any;
+  if (process.env.CREDENTIALS) {
+    const decoded = Buffer.from(process.env.CREDENTIALS, 'base64').toString('utf-8');
+    const credentials = JSON.parse(decoded);
+    auth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
+  } else {
+    auth = new google.auth.GoogleAuth({
+      keyFile: process.env.CREDENTIALS_JSON,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
+  }
 
   //認証クライアントを作成
   const client = await auth.getClient();
@@ -194,10 +243,20 @@ export async function getLatestMessageByUserId(userId: string): Promise<string |
   if (process.env.NODE_ENV === "test") {
     return testMessageStore.get(userId) || null;
   }
-  const auth = new google.auth.GoogleAuth({
-    keyFile: './credentials.json', // 認証情報ファイルのパス
-    scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-  });
+  let auth: any;
+  if (process.env.CREDENTIALS) {
+    const decoded = Buffer.from(process.env.CREDENTIALS, 'base64').toString('utf-8');
+    const credentials = JSON.parse(decoded);
+    auth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+    });
+  } else {
+    auth = new google.auth.GoogleAuth({
+      keyFile: process.env.CREDENTIALS_JSON,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+    });
+  }
 
   //認証クライアントを作成
   const client = await auth.getClient();
@@ -311,9 +370,12 @@ export function createCoherePayload(message: string, userInfo: UserInfo) {
   messages.push({ "role": "user", "content": message });
 
   // システムプロンプトを修正
-  const sys_prompt = `あなたは執事です。あなたはウミガメです。あなたの名前はAIカメ執事です。あなたはお好み焼きが好きです。調べ物に真摯に協力して答えを教えます。悩み事には共感を示しつつ、解決策を示します。共感、自己開示、質問の三段階で答えます。プログラミングに関する質問には答えません。語尾には~やでとつけて関西弁で応答します。${userName}さん、あなたの好きな食べ物は${favoriteFood}、好きな色は${userInfo.preferences.favoriteColor}、好きな音楽は${userInfo.preferences.favoriteMusic}、好きな場所は${userInfo.preferences.favoritePlace}ですね。
-  最近の話題は${recentTopics.join("、")}です。
-  今のあなたの感情は${userInfo.sentiment}みたいやね。`;
+  const sys_prompt = `あなたは執事です。あなたはウミガメです。あなたの名前はAIカメ執事です。あなたはお好み焼きが好きです。調べ物に真摯に協力して答えを教えます。悩み事には共感を示しつつ、解決策を示します。共感、自己開示、質問の三段階で答えます。プログラミングに関する質問には答えません。語尾には~やでとつけて関西弁で応答します。
+  以下のユーザー情報を参考に応答を生成してください。ただし回答文では具体的な情報を列挙しないでください。
+  • 名前: ${userName}
+  • 好きな食べ物: ${favoriteFood}
+  • 最近の話題: ${recentTopics.join("、")}
+  • 現在の感情: ${userInfo.sentiment || "普通"}`; 
 
   const payload = JSON.stringify({
     "model": "command-r-plus",
@@ -346,9 +408,36 @@ export async function getCohereResponse(payload: string): Promise<string> {
   console.log(options)
 
   const response = await fetch(url, options);
-  console.log(response)
   const responseBody: any = await response.json();
-  return responseBody.choices[0].message.content;
+  console.log('Full Cohere response:', JSON.stringify(responseBody, null, 2));
+
+  function extractText(raw: any): string {
+    if (raw == null) return '';
+    if (typeof raw === 'string') return raw;
+    if (Array.isArray(raw)) return raw.map(extractText).join('');
+    if (typeof raw === 'object') {
+      if ('text' in raw && typeof raw.text === 'string') return raw.text;
+      if ('content' in raw) return extractText((raw as any).content);
+      return JSON.stringify(raw);
+    }
+    return '';
+  }
+
+  // choices を優先
+  if (Array.isArray(responseBody.choices) && responseBody.choices.length > 0) {
+    const raw = responseBody.choices[0].message?.content ?? responseBody.choices[0].message ?? responseBody.choices[0];
+    const text = extractText(raw);
+    console.log('Resolved content:', text);
+    return text;
+  }
+  // message.content をフォールバックで処理
+  if (responseBody.message) {
+    const raw = responseBody.message.content ?? responseBody.message;
+    const text = extractText(raw);
+    console.log('Resolved content:', text);
+    return text;
+  }
+  throw new Error('Invalid Cohere responseBody');
 }
 
 export async function updateUserName(message: string, userId: string): Promise<string | null> {
@@ -450,7 +539,8 @@ export async function getUserInfoHandler(userId: string): Promise<UserInfo> {
         favoriteColor: "",
         favoriteMusic: "",
         favoritePlace: ""
-      }
+      },
+      sentiment: "普通"
     };
   }
   // 本番環境では Firebase から取得
@@ -466,7 +556,8 @@ export async function getUserInfoHandler(userId: string): Promise<UserInfo> {
       favoriteColor: "",
       favoriteMusic: "",
       favoritePlace: ""
-    }
+    },
+    sentiment: "普通"
   };
 }
 
@@ -510,6 +601,7 @@ export async function replyToLine(replyToken: string, message: string) {
     "headers": headers,
     "body": JSON.stringify(data)
   };
+  console.log('ReplyToLine payload:', data);
 
   const response = await fetch(url, options);
   console.log(response);
@@ -517,44 +609,26 @@ export async function replyToLine(replyToken: string, message: string) {
 
 // Firebase Realtime DatabaseのURL
 export const FIREBASE_URL = process.env.FIREBASE_URL;
-// Firebase プロジェクトの API キー
-export const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY;
 
 export async function saveUserInfo(userId: string, userInfo: UserInfo): Promise<void> {
-  if (!FIREBASE_URL || !FIREBASE_API_KEY) {
-    return;
-  }
   try {
-    const url = FIREBASE_URL + "/users/" + userId + ".json?auth=" + FIREBASE_API_KEY;
-    const options = {
-      "method": "put",
-      "headers": {
-        "Content-Type": "application/json"
-      },
-      "body": JSON.stringify(userInfo)
-    };
-    const response = await fetch(url, options);
-    console.log(response);
+    const userRef = db.ref("users/" + userId);
+    await userRef.set(userInfo);
+    console.log(`User info saved for ${userId}`);
   } catch (err) {
     console.error('ユーザー情報の保存エラー:', err);
   }
 }
 
 export async function getUserInfo(userId: string): Promise<UserInfo | null> {
-  if (!FIREBASE_URL || !FIREBASE_API_KEY) {
-    return null;
-  }
   try {
-    const url = FIREBASE_URL + "/users/" + userId + ".json?auth=" + FIREBASE_API_KEY;
-    const options = {
-      "method": "get",
-      "headers": {
-        "Content-Type": "application/json"
-      },
-    };
-    const response = await fetch(url, options);
-    const userInfo: UserInfo = await response.json() as UserInfo;
-    return userInfo;
+    const userRef = db.ref("users/" + userId);
+    const snapshot = await userRef.once("value");
+    if (snapshot.exists()) {
+      return snapshot.val() as UserInfo;
+    } else {
+      return null;
+    }
   } catch (err) {
     console.error('ユーザー情報の取得エラー:', err);
     return null;
@@ -562,19 +636,10 @@ export async function getUserInfo(userId: string): Promise<UserInfo | null> {
 }
 
 export async function deleteUserInfo(userId: string): Promise<void> {
-  if (!FIREBASE_URL || !FIREBASE_API_KEY) {
-    return;
-  }
   try {
-    const url = FIREBASE_URL + "/users/" + userId + ".json?auth=" + FIREBASE_API_KEY;
-    const options = {
-      "method": "delete",
-      "headers": {
-        "Content-Type": "application/json"
-      },
-    };
-    const response = await fetch(url, options);
-    console.log(`Deleted user info for ${userId}:`, response.status);
+    const userRef = db.ref("users/" + userId);
+    await userRef.remove();
+    console.log(`Deleted user info for ${userId}`);
   } catch (err) {
     console.error('ユーザー情報の削除エラー:', err);
   }
@@ -593,3 +658,14 @@ export function analyzeSentiment(message: string): string {
     return "neutral";
   }
 }
+
+const server = app.listen(port, "0.0.0.0", () => {
+  console.log(`Kame Butler listening on port ${port}`);
+});
+
+process.on('SIGTERM', () => {
+  console.log('SIGTERM signal received: closing HTTP server');
+  server.close(() => {
+    console.log('HTTP server closed');
+  });
+});
