@@ -362,9 +362,10 @@ export function createCoherePayload(message: string, userInfo: UserInfo) {
   const chatHistory = userInfo.chatHistory || [];
 
   // 会話履歴をLLMへの入力形式に変換
-  const messages = chatHistory.map(function (chat) {
-    return { "role": "user", "content": chat.message };
-  });
+  const messages = chatHistory.flatMap(chat => [
+    { "role": "user", "content": chat.message },
+    { "role": "assistant", "content": chat.response }
+  ]);
 
   // 最新のメッセージをLLMへの入力に追加
   messages.push({ "role": "user", "content": message });
