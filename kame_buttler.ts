@@ -46,7 +46,8 @@ const SPREADSHEET_ID: string = process.env.SPREADSHEET_ID || "";
 // LINE Botのチャネルアクセストークンとチャネルシークレット
 const CHANNEL_ACCESS_TOKEN: string = process.env.CHANNEL_ACCESS || "";
 const CHANNEL_SECRET: string = process.env.CHANNEL_SECRET || "";
-let sys_prompt: string = "あなたは執事です。あなたはウミガメです。あなたの名前はAIカメ執事です。あなたはお好み焼きが好きです。調べ物に真摯に協力して答えを教えます。悩み事には共感を示しつつ、解決策を示します。共感、自己開示、質問の三段階で答えます。プログラミングに関する質問には答えません。語尾には~やでとつけて関西弁で応答します。"
+
+import { BASE_SYSTEM_PROMPT, USER_INFO_PROMPT_TEMPLATE } from './prompts';
 
 interface LineRequestBody {
   events: any[];
@@ -172,8 +173,10 @@ export async function handleLineRequest(body: LineRequestBody) {
   // 感情分析
   analyzeUserSentiment(userInfo, userMessage);
 
-  // LINEに応答
-  await replyToLine(replyToken, replyMessage);
+  // テスト環境では返信をスキップ
+  if (process.env.NODE_ENV !== 'test') {
+    await replyToLine(replyToken, replyMessage);
+  }
 }
 
 /**
@@ -370,13 +373,14 @@ export function createCoherePayload(message: string, userInfo: UserInfo) {
   // 最新のメッセージをLLMへの入力に追加
   messages.push({ "role": "user", "content": message });
 
-  // システムプロンプトを修正
-  const sys_prompt = `あなたは執事です。あなたはウミガメです。あなたの名前はAIカメ執事です。あなたはお好み焼きが好きです。調べ物に真摯に協力して答えを教えます。悩み事には共感を示しつつ、解決策を示します。共感、自己開示、質問の三段階で答えます。プログラミングに関する質問には答えません。語尾には~やでとつけて関西弁で応答します。
-  以下のユーザー情報を参考に応答を生成してください。ただし回答文では具体的な情報を列挙しないでください。
-  • 名前: ${userName}
-  • 好きな食べ物: ${favoriteFood}
-  • 最近の話題: ${recentTopics.join("、")}
-  • 現在の感情: ${userInfo.sentiment || "普通"}`; 
+  // システムプロンプトを生成
+  const userInfoPrompt = USER_INFO_PROMPT_TEMPLATE
+    .replace('${userName}', userName)
+    .replace('${favoriteFood}', favoriteFood)
+    .replace('${recentTopics}', recentTopics.join("、"))
+    .replace('${sentiment}', userInfo.sentiment || "普通");
+
+  const sys_prompt = BASE_SYSTEM_PROMPT + userInfoPrompt;
 
   const payload = JSON.stringify({
     "model": "command-r-plus",
@@ -440,6 +444,109 @@ export async function getCohereResponse(payload: string): Promise<string> {
   }
   throw new Error('Invalid Cohere responseBody');
 }
+
+/**
+ * createGeminiPayload関数：Gemini APIに送信するペイロードを生成します。
+ * @param {string} message - ユーザーからのメッセージ。
+ * @param {object} userInfo - ユーザー情報。
+ * @return {object} - Gemini APIに送信するペイロード。
+ */
+export function createGeminiPayload(message: string, userInfo: UserInfo) {
+  // ユーザー名を取得
+  const userName = userInfo.userName || "";
+
+  // 好きな食べ物を取得
+  const favoriteFood = userInfo.preferences && userInfo.preferences.favoriteFood || "お好み焼き";
+
+  // 最近の話題を取得
+  const recentTopics = userInfo.recentTopics || [];
+
+  // 会話履歴を取得
+  const chatHistory = userInfo.chatHistory || [];
+
+  // 会話履歴をLLMへの入力形式に変換
+  const history = chatHistory.flatMap(chat => [
+    { "role": "user", "parts": [{ "text": chat.message }] },
+    { "role": "model", "parts": [{ "text": chat.response }] }
+  ]);
+
+  // システムプロンプトを生成
+  const userInfoPrompt = USER_INFO_PROMPT_TEMPLATE
+    .replace('${userName}', userName)
+    .replace('${favoriteFood}', favoriteFood)
+    .replace('${recentTopics}', recentTopics.join("、"))
+    .replace('${sentiment}', userInfo.sentiment || "普通");
+
+  const sys_prompt = BASE_SYSTEM_PROMPT + userInfoPrompt;
+
+  const contents = [
+    { "role": "user", "parts": [{ "text": sys_prompt }] },
+    { "role": "model", "parts": [{ "text": "承知いたしました。どのようなご用件でしょうか？" }] }, // システムプロンプトへの応答例
+    ...history,
+    { "role": "user", "parts": [{ "text": message }] }
+  ];
+
+  const payload = JSON.stringify({
+    "contents": contents
+  });
+  return payload;
+}
+
+/**
+ * getGeminiResponse関数：Gemini APIにリクエストを送信して応答を取得します。
+ * @param {object} payload - Gemini APIに送信するペイロード。
+ * @return {string} - LLMからの応答。
+ */
+export async function getGeminiResponse(payload: string): Promise<string> {
+  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+  if (!GEMINI_API_KEY) {
+    throw new Error('GEMINI_API_KEY 環境変数が設定されていません。');
+  }
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`; // クエリパラメータからキーを削除
+  const headers: { [key: string]: string } = {
+    "Content-Type": "application/json",
+    "x-goog-api-key": GEMINI_API_KEY.replace(/^"|"$/g, '') // ヘッダーにキーを追加
+  };
+  const options: { method: string; headers: { [key: string]: string }; body: string } = {
+    "method": "post",
+    "headers": headers,
+    "body": payload
+  };
+  console.log(options)
+
+  const response = await fetch(url, options);
+  const responseBody: any = await response.json();
+  console.log('Full Gemini response:', JSON.stringify(responseBody, null, 2));
+  console.log('Gemini response status:', response.status);
+  console.log('Gemini response status text:', response.statusText);
+
+  if (responseBody && responseBody.candidates && responseBody.candidates.length > 0) {
+    const candidate = responseBody.candidates[0];
+    if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
+      console.log('Gemini response text:', candidate.content.parts[0].text);
+      return candidate.content.parts[0].text;
+    }
+  }
+  throw new Error('Invalid Gemini responseBody');
+}
+
+/**
+ * postGemini関数：ユーザーのメッセージに基づいて、Geminiに応答を生成させます。
+ * @param {string} message - ユーザーからのメッセージ。
+ * @param {string} userId - ユーザーID。
+ * @return {string} - Geminiからの応答。
+ */
+export async function postGemini(message: string, userId: string): Promise<string> {
+  console.log(message);
+  // ユーザー情報を取得
+  const userInfo = await getUserInfoHandler(userId);
+  // LLMへのリクエストを生成
+  const payload = createGeminiPayload(message, userInfo);
+  // LLMにリクエストを送信して応答を取得
+  const response = await getGeminiResponse(payload);
+  return response;
+}
+
 
 export async function updateUserName(message: string, userId: string): Promise<string | null> {
   const userInfo = await getUserInfoHandler(userId);
@@ -563,7 +670,12 @@ export async function getUserInfoHandler(userId: string): Promise<UserInfo> {
 }
 
 export async function generateReplyMessage(userMessage: string, userId: string, userInfo: UserInfo): Promise<string> {
-  return await postCommandR(userMessage, userId);
+  try {
+    return await postGemini(userMessage, userId);
+  } catch (err) {
+    console.error('Gemini呼び出し失敗, Cohereにフォールバック:', err);
+    return await postCommandR(userMessage, userId);
+  }
 }
 
 export function updateChatHistory(userInfo: UserInfo, userMessage: string, replyMessage: string): void {

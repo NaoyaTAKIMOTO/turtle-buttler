@@ -47,6 +47,9 @@ exports.getReplyMessage = getReplyMessage;
 exports.postCommandR = postCommandR;
 exports.createCoherePayload = createCoherePayload;
 exports.getCohereResponse = getCohereResponse;
+exports.createGeminiPayload = createGeminiPayload;
+exports.getGeminiResponse = getGeminiResponse;
+exports.postGemini = postGemini;
 exports.updateUserName = updateUserName;
 exports.updateUserNameHandler = updateUserNameHandler;
 exports.updateFavoriteFood = updateFavoriteFood;
@@ -185,8 +188,9 @@ async function handleLineRequest(body) {
         userInfo.recentTopics.shift();
     }
     // 応答メッセージを生成
-    const replyMessage = await generateReplyMessage(userMessage, userId, userInfo);
-    console.log('LLM response:', replyMessage);
+    let replyMessage;
+    replyMessage = await generateReplyMessage(userMessage, userId, userInfo);
+    console.log('Reply message:', replyMessage);
     // メッセージをスプレッドシートに記録
     await logMessageToSpreadsheet("Bot: " + replyMessage, userId);
     // 会話履歴を更新
@@ -367,15 +371,19 @@ function createCoherePayload(message, userInfo) {
     // 会話履歴を取得
     const chatHistory = userInfo.chatHistory || [];
     // 会話履歴をLLMへの入力形式に変換
-    const messages = chatHistory.map(function (chat) {
-        return { "role": "user", "content": chat.message };
-    });
+    const messages = chatHistory.flatMap(chat => [
+        { "role": "user", "content": chat.message },
+        { "role": "assistant", "content": chat.response }
+    ]);
     // 最新のメッセージをLLMへの入力に追加
     messages.push({ "role": "user", "content": message });
     // システムプロンプトを修正
-    const sys_prompt = `あなたは執事です。あなたはウミガメです。あなたの名前はAIカメ執事です。あなたはお好み焼きが好きです。調べ物に真摯に協力して答えを教えます。悩み事には共感を示しつつ、解決策を示します。共感、自己開示、質問の三段階で答えます。プログラミングに関する質問には答えません。語尾には~やでとつけて関西弁で応答します。${userName}さん、あなたの好きな食べ物は${favoriteFood}、好きな色は${userInfo.preferences.favoriteColor}、好きな音楽は${userInfo.preferences.favoriteMusic}、好きな場所は${userInfo.preferences.favoritePlace}ですね。
-  最近の話題は${recentTopics.join("、")}です。
-  今のあなたの感情は${userInfo.sentiment}みたいやね。`;
+    const sys_prompt = `あなたは執事です。あなたはウミガメです。あなたの名前はAIカメ執事です。あなたはお好み焼きが好きです。調べ物に真摯に協力して答えを教えます。悩み事には共感を示しつつ、解決策を示します。共感、自己開示、質問の三段階で答えます。プログラミングに関する質問には答えません。語尾には~やでとつけて関西弁で応答します。
+  以下のユーザー情報を参考に応答を生成してください。ただし回答文では具体的な情報を列挙しないでください。
+  • 名前: ${userName}
+  • 好きな食べ物: ${favoriteFood}
+  • 最近の話題: ${recentTopics.join("、")}
+  • 現在の感情: ${userInfo.sentiment || "普通"}`;
     const payload = JSON.stringify({
         "model": "command-r-plus",
         "messages": [
@@ -391,6 +399,7 @@ function createCoherePayload(message, userInfo) {
  * @return {string} - LLMからの応答。
  */
 async function getCohereResponse(payload) {
+    var _a, _b, _c, _d;
     const CO_API_KEY = process.env.CO_API_KEY;
     const url = "https://api.cohere.com/v2/chat";
     const headers = {
@@ -406,11 +415,120 @@ async function getCohereResponse(payload) {
     console.log(options);
     const response = await (0, node_fetch_1.default)(url, options);
     const responseBody = await response.json();
-    console.log('Cohere responseBody:', responseBody);
-    if (!responseBody.choices || responseBody.choices.length === 0) {
-        throw new Error('Invalid Cohere responseBody');
+    console.log('Full Cohere response:', JSON.stringify(responseBody, null, 2));
+    function extractText(raw) {
+        if (raw == null)
+            return '';
+        if (typeof raw === 'string')
+            return raw;
+        if (Array.isArray(raw))
+            return raw.map(extractText).join('');
+        if (typeof raw === 'object') {
+            if ('text' in raw && typeof raw.text === 'string')
+                return raw.text;
+            if ('content' in raw)
+                return extractText(raw.content);
+            return JSON.stringify(raw);
+        }
+        return '';
     }
-    return responseBody.choices[0].message.content;
+    // choices を優先
+    if (Array.isArray(responseBody.choices) && responseBody.choices.length > 0) {
+        const raw = (_c = (_b = (_a = responseBody.choices[0].message) === null || _a === void 0 ? void 0 : _a.content) !== null && _b !== void 0 ? _b : responseBody.choices[0].message) !== null && _c !== void 0 ? _c : responseBody.choices[0];
+        const text = extractText(raw);
+        console.log('Resolved content:', text);
+        return text;
+    }
+    // message.content をフォールバックで処理
+    if (responseBody.message) {
+        const raw = (_d = responseBody.message.content) !== null && _d !== void 0 ? _d : responseBody.message;
+        const text = extractText(raw);
+        console.log('Resolved content:', text);
+        return text;
+    }
+    throw new Error('Invalid Cohere responseBody');
+}
+/**
+ * createGeminiPayload関数：Gemini APIに送信するペイロードを生成します。
+ * @param {string} message - ユーザーからのメッセージ。
+ * @param {object} userInfo - ユーザー情報。
+ * @return {object} - Gemini APIに送信するペイロード。
+ */
+function createGeminiPayload(message, userInfo) {
+    // ユーザー名を取得
+    const userName = userInfo.userName || "";
+    // 好きな食べ物を取得
+    const favoriteFood = userInfo.preferences && userInfo.preferences.favoriteFood || "お好み焼き";
+    // 最近の話題を取得
+    const recentTopics = userInfo.recentTopics || [];
+    // 会話履歴を取得
+    const chatHistory = userInfo.chatHistory || [];
+    // 会話履歴をLLMへの入力形式に変換
+    const history = chatHistory.flatMap(chat => [
+        { "role": "user", "parts": [{ "text": chat.message }] },
+        { "role": "model", "parts": [{ "text": chat.response }] }
+    ]);
+    // システムプロンプトを修正
+    const sys_prompt = `あなたは執事です。あなたはウミガメです。あなたの名前はAIカメ執事です。あなたはお好み焼きが好きです。調べ物に真摯に協力して答えを教えます。悩み事には共感を示しつつ、解決策を示します。共感、自己開示、質問の三段階で答えます。プログラミングに関する質問には答えません。語尾には~やでとつけて関西弁で応答します。
+  以下のユーザー情報を参考に応答を生成してください。ただし回答文では具体的な情報を列挙しないでください。
+  • 名前: ${userName}
+  • 好きな食べ物: ${favoriteFood}
+  • 最近の話題: ${recentTopics.join("、")}
+  • 現在の感情: ${userInfo.sentiment || "普通"}`;
+    const contents = [
+        { "role": "user", "parts": [{ "text": sys_prompt }] },
+        { "role": "model", "parts": [{ "text": "承知いたしました。どのようなご用件でしょうか？" }] }, // システムプロンプトへの応答例
+        ...history,
+        { "role": "user", "parts": [{ "text": message }] }
+    ];
+    const payload = JSON.stringify({
+        "contents": contents
+    });
+    return payload;
+}
+/**
+ * getGeminiResponse関数：Gemini APIにリクエストを送信して応答を取得します。
+ * @param {object} payload - Gemini APIに送信するペイロード。
+ * @return {string} - LLMからの応答。
+ */
+async function getGeminiResponse(payload) {
+    const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}`;
+    const headers = {
+        "Content-Type": "application/json"
+    };
+    const options = {
+        "method": "post",
+        "headers": headers,
+        "body": payload
+    };
+    console.log(options);
+    const response = await (0, node_fetch_1.default)(url, options);
+    const responseBody = await response.json();
+    console.log('Full Gemini response:', JSON.stringify(responseBody, null, 2));
+    if (responseBody.candidates && responseBody.candidates.length > 0) {
+        const candidate = responseBody.candidates[0];
+        if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
+            return candidate.content.parts[0].text;
+        }
+    }
+    throw new Error('Invalid Gemini responseBody');
+}
+/**
+ * postGemini関数：ユーザーのメッセージに基づいて、Geminiに応答を生成させます。
+ * @param {string} message - ユーザーからのメッセージ。
+ * @param {string} userId - ユーザーID。
+ * @return {string} - Geminiからの応答。
+ */
+async function postGemini(message, userId) {
+    console.log(message);
+    // ユーザー情報を取得
+    const userInfo = await getUserInfoHandler(userId);
+    // LLMへのリクエストを生成
+    const payload = createGeminiPayload(message, userInfo);
+    // LLMにリクエストを送信して応答を取得
+    const response = await getGeminiResponse(payload);
+    return response;
 }
 async function updateUserName(message, userId) {
     const userInfo = await getUserInfoHandler(userId);
@@ -504,7 +622,8 @@ async function getUserInfoHandler(userId) {
                 favoriteColor: "",
                 favoriteMusic: "",
                 favoritePlace: ""
-            }
+            },
+            sentiment: "普通"
         };
     }
     // 本番環境では Firebase から取得
@@ -520,11 +639,13 @@ async function getUserInfoHandler(userId) {
             favoriteColor: "",
             favoriteMusic: "",
             favoritePlace: ""
-        }
+        },
+        sentiment: "普通"
     };
 }
 async function generateReplyMessage(userMessage, userId, userInfo) {
-    return await postCommandR(userMessage, userId);
+    // return await postCommandR(userMessage, userId); // Cohereを使用する場合
+    return await postGemini(userMessage, userId); // Geminiを使用する場合
 }
 function updateChatHistory(userInfo, userMessage, replyMessage) {
     userInfo.chatHistory.push({

@@ -83,9 +83,6 @@ gcloud run services add-iam-policy-binding kame-buttler \
   --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
   --role="roles/run.admin"
 
-# Compute Engine デフォルトSA に Cloud Build SA のトークン発行権限を付与
-echo "Granting Service Account Token Creator to Compute Engine default SA on Cloud Build SA: ${CLOUD_BUILD_SA_EMAIL}"
-gcloud iam service-accounts add-iam-policy-binding "projects/${PROJECT_ID}/serviceAccounts/${CLOUD_BUILD_SA_EMAIL}" \
-  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
-  --role="roles/iam.serviceAccountTokenCreator" \
-  --project="${PROJECT_ID}"
+# Compute Engine デフォルトSA への Token Creator 権限は
+# プロジェクトレベルの IAM バインディングで付与済みのためスキップします。
+echo "Compute Engine default SA Token Creator binding is handled at project level."

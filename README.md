@@ -46,6 +46,7 @@ npm start
 
 ## ビルド&デプロイ
 ```zsh
+bash scripts/setup_gcp.sh || 
 gcloud builds submit --config=cloudbuild.yaml .
 ```
 前提として、

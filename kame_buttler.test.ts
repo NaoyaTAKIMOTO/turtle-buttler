@@ -205,4 +205,152 @@ describe('Firebase Realtime Database and Spreadsheet Integration Tests', functio
   });
 });
 
-// generateReplyMessage, updateChatHistory, saveUserInfoHandler, postCommandR, createCoherePayload, getCohereResponse, replyToLine, saveUserInfo, getUserInfo, logMessageToSpreadsheet, getLatestMessageByUserId は外部APIやFirebaseとの連携が必要なため、モック化するか、統合テストとして実装する必要があります。
+
+// doPost 関数のテスト (LINEリクエストの処理)
+describe('doPost - LINE Request Handling', () => {
+  // モック関数の定義
+  const mockGenerateReplyMessage = async (userMessage: string, userId: string, userInfo: any) => {
+    // ここでは簡単な応答を返すようにモック
+    return `Mocked reply to: ${userMessage}`;
+  };
+
+  const mockReplyToLine = async (replyToken: string, message: string) => {
+    console.log(`Mocked replyToLine called with token: ${replyToken}, message: ${message}`);
+    // 何もせずに関数を終了
+  };
+
+  const mockGetUserInfoHandler = async (userId: string) => {
+    // テスト用のダミーユーザー情報を返す
+    return {
+      userId: userId,
+      userName: "Test User",
+      chatHistory: [],
+      recentTopics: [],
+      preferences: {
+        favoriteFood: "お好み焼き",
+        language: "関西弁",
+      },
+      sentiment: "neutral"
+    };
+  };
+
+  // モックの適用と解除
+  let originalGenerateReplyMessage: any;
+  let originalReplyToLine: any;
+  let originalGetUserInfoHandler: any;
+
+  before(() => {
+    // オリジナル関数を保存し、モック関数に置き換え
+    originalGenerateReplyMessage = require('./kame_buttler').generateReplyMessage;
+    require('./kame_buttler').generateReplyMessage = mockGenerateReplyMessage;
+
+    originalReplyToLine = require('./kame_buttler').replyToLine;
+    require('./kame_buttler').replyToLine = mockReplyToLine;
+
+    originalGetUserInfoHandler = require('./kame_buttler').getUserInfoHandler;
+    require('./kame_buttler').getUserInfoHandler = mockGetUserInfoHandler;
+  });
+
+  after(() => {
+    // オリジナル関数に戻す
+    require('./kame_buttler').generateReplyMessage = originalGenerateReplyMessage;
+    require('./kame_buttler').replyToLine = originalReplyToLine;
+    require('./kame_buttler').getUserInfoHandler = originalGetUserInfoHandler;
+  });
+
+  it('should process a LINE message event and reply', async () => {
+    const dummyLineRequest = {
+      "events": [
+        {
+          "replyToken": "dummyReplyToken",
+          "type": "message",
+          "timestamp": 1234567890,
+          "source": {
+            "userId": "U1234abcd",
+            "type": "user"
+          },
+          "message": {
+            "type": "text",
+            "id": "1234567890123",
+            "text": "こんにちは"
+          }
+        }
+      ]
+    };
+
+    // supertest を使用して doPost 関数をテスト
+    const response = await request(app)
+      .post('/')
+      .send(dummyLineRequest);
+
+    // 応答のステータスコードが 200 であることを確認
+    expect(response.status).to.equal(200);
+    // 応答ボディが 'OK' であることを確認 (LINE Webhook の仕様に合わせる)
+    expect(response.text).to.equal('OK');
+
+    // generateReplyMessage と replyToLine が呼び出されたことを検証 (モックを使用しているため、ここでは直接的な検証は難しいですが、関数が実行されるパスを確認)
+    // より厳密なテストには Sinon.js などのモックライブラリの使用が推奨されます。
+  });
+});
+
+
+// E2Eテスト (LINE Webhook -> バックエンド -> Gemini -> Firebase)
+describe('E2E Test - LINE Webhook to Gemini and Firebase', function() {
+  this.timeout(10000); // E2Eテストのためタイムアウトを長めに設定
+
+  // replyToLine をモック化
+  let originalReplyToLine: any;
+  let replyToLineCalledWith: { replyToken: string, message: string } | null = null;
+
+  before(() => {
+    originalReplyToLine = require('./kame_buttler').replyToLine;
+    require('./kame_buttler').replyToLine = async (replyToken: string, message: string) => {
+      console.log(`Mocked replyToLine called with token: ${replyToken}, message: ${message}`);
+      replyToLineCalledWith = { replyToken, message };
+    };
+  });
+
+  after(() => {
+    // モックを解除
+    require('./kame_buttler').replyToLine = originalReplyToLine;
+    replyToLineCalledWith = null; // 状態をリセット
+  });
+
+  // 各テストの前にテストユーザー情報を削除
+  beforeEach(async () => {
+    const userId = 'U1234abcd'; // dummy_line_request.json の userId
+    await deleteUserInfo(userId);
+    replyToLineCalledWith = null; // 状態をリセット
+  });
+
+  it('should process a LINE message, call Gemini, save to Firebase, and attempt to reply to LINE', async () => {
+    const dummyLineRequest = require('../dummy_line_request.json'); // dummy_line_request.json を読み込み
+
+    // Supertest を使用して doPost 関数をテスト
+    const response = await request(app)
+      .post('/')
+      .send(dummyLineRequest);
+
+    // 応答のステータスコードが 200 であることを確認
+    expect(response.status).to.equal(200);
+    expect(response.text).to.equal('OK');
+
+    // replyToLine が呼び出されたことを検証
+    expect(replyToLineCalledWith).to.not.be.null;
+    expect(replyToLineCalledWith?.replyToken).to.equal('dummyReplyToken');
+    // ここでは Gemini からの具体的な応答内容を検証するのは難しいため、メッセージが文字列であることを確認
+    expect(replyToLineCalledWith?.message).to.be.a('string');
+    expect(replyToLineCalledWith?.message).to.not.be.empty; // 空文字列でないことを確認
+
+    // Firebase にユーザー情報が保存されたことを検証
+    const userId = 'U1234abcd'; // dummy_line_request.json の userId
+    const userInfo = await getUserInfo(userId);
+
+    expect(userInfo).to.not.be.null;
+    expect(userInfo?.userId).to.equal(userId);
+    // chatHistory にメッセージが追加されたことを確認 (ユーザーメッセージとボットの応答)
+    expect(userInfo?.chatHistory).to.be.an('array').with.lengthOf(1);
+    expect(userInfo?.chatHistory[0].message).to.equal(dummyLineRequest.events[0].message.text);
+    expect(userInfo?.chatHistory[0].response).to.equal(replyToLineCalledWith?.message); // replyToLine に渡されたメッセージと一致することを確認
+  });
+});
