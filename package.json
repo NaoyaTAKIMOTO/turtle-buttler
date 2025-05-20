@@ -5,7 +5,7 @@
   "main": "./dist/kame_buttler.js",
   "scripts": {
     "start": "node ./dist/kame_buttler.js",
-    "test": "mocha -r ts-node/register -r dotenv/config './*.test.ts'",
+    "test": "TS_NODE_FILES=true mocha -r ts-node/register -r dotenv/config './*.test.ts'",
     "build": "tsc"
   },
   "author": "takimotonaoya",
@@ -24,6 +24,7 @@
     "ts-node": "^10.9.2"
   },
   "dependencies": {
+    "amazon-paapi": "^1.0.7",
     "body-parser": "^1.20.2",
     "dotenv": "^16.4.5",
     "express": "^4.18.2",

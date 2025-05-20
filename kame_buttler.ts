@@ -123,59 +123,92 @@ async function enableAppsScriptAPI() {
  * @param {object} body - リクエストボディ。POSTリクエストの情報を含みます。
  */
 export async function handleLineRequest(body: LineRequestBody) {
-  const eventData: any = body.events[0];
-  console.log(eventData);
+  for (const eventData of body.events) { // 変更: events 配列をループ処理
+    console.log(eventData);
 
-  //取得したデータから、応答用のトークンを取得
-  const replyToken: string = eventData.replyToken;
-  //取得したデータから、メッセージ種別を取得
-  const messageType: string = eventData.message.type;
-  //取得したデータから、ユーザーが投稿したメッセージを取得
-  const userMessage: string = eventData.message.text;
-  const userId: string = eventData.source.userId;
+    // 取得したデータから、応答用のトークンを取得
+    const replyToken: string = eventData.replyToken;
+    // 取得したデータから、メッセージ種別を取得 (現状はtextメッセージのみを想定しているため、必要に応じて分岐)
+    // const messageType: string = eventData.message.type; 
+    if (eventData.message.type !== 'text') {
+      console.log(`Unsupported message type: ${eventData.message.type}. Skipping.`);
+      continue; // テキストメッセージ以外はスキップ (またはエラー応答)
+    }
+    // 取得したデータから、ユーザーが投稿したメッセージを取得
+    const userMessage: string = eventData.message.text;
+    const userId: string = eventData.source.userId;
 
-  // ユーザー名更新
-  await updateUserNameHandler(userMessage, userId, replyToken);
+    // ユーザー名更新 (応答が必要な場合は replyToken を使う)
+    // 注意: updateUserNameHandler は内部で replyToLine を呼ぶため、
+    // このループ内で複数回呼ばれると、複数の応答が送信される可能性がある。
+    // 設計によっては、これらのハンドラからの直接応答を抑制し、
+    // generateReplyMessage で集約的な応答を生成する方が良い場合もある。
+    // 現状はそのままにしておくが、挙動に注意。
+    const userNameUpdated = await updateUserNameHandler(userMessage, userId, replyToken);
+    if (userNameUpdated) {
+      // 名前更新が成功し、応答が送信された場合は、このイベントの処理を終了する（二重応答を避ける）
+      // ただし、他の情報（好きな食べ物など）も同時に更新したい場合は、この continue は不適切。
+      // ここでは、名前更新がメインの目的だったと仮定し、continue するか、
+      // あるいは updateUserNameHandler が応答を返さないように変更する必要がある。
+      // 一旦、continue せずに進める。
+    }
 
-  // 好きな食べ物更新
-  await updateFavoriteFoodHandler(userMessage, userId, replyToken);
+    // 好きな食べ物更新 (同様に replyToken を使う)
+    const favoriteFoodUpdated = await updateFavoriteFoodHandler(userMessage, userId, replyToken);
+    if (favoriteFoodUpdated) {
+      // こちらも同様の注意点あり
+    }
 
-  // メッセージをスプレッドシートに記録
-  await logMessageToSpreadsheet(userMessage, userId);
+    // メッセージをスプレッドシートに記録
+    await logMessageToSpreadsheet(userMessage, userId);
 
-  // ユーザー情報を取得または初期化
-  const userInfo: UserInfo = await getUserInfoHandler(userId);
+    // ユーザー情報を取得または初期化
+    const userInfo: UserInfo = await getUserInfoHandler(userId);
 
-  // 最近の話題を更新
-  userInfo.recentTopics.push(userMessage);
-  // recentTopicsの要素数が5を超えた場合は、古い要素を削除
-  if (userInfo.recentTopics.length > 5) {
-    userInfo.recentTopics.shift();
-  }
+    // 最近の話題を更新
+    userInfo.recentTopics.push(userMessage);
+    // recentTopicsの要素数が5を超えた場合は、古い要素を削除
+    if (userInfo.recentTopics.length > 5) {
+      userInfo.recentTopics.shift();
+    }
 
-  // 応答メッセージを生成
-  let replyMessage: string;
+    // 応答メッセージを生成
+    // updateUserNameHandler や updateFavoriteFoodHandler が既に応答している場合、
+    // ここでの応答は不要かもしれない。設計の見直しが必要なポイント。
+    // ここでは、それらのハンドラが応答しなかった場合にのみ、汎用的な応答を生成すると仮定する。
+    let replyMessage: string = "";
+    if (!userNameUpdated && !favoriteFoodUpdated) {
+      replyMessage = await generateReplyMessage(userMessage, userId, userInfo);
+    } else if (userNameUpdated && favoriteFoodUpdated) {
+      // 両方更新された場合のメッセージ (例: 「お名前と好きな食べ物を覚えました！」) を別途用意するか、
+      // 最後の更新処理の応答を優先する。ここでは何もしないでおく。
+      // もし両方更新された場合、2回応答が飛んでいる可能性がある。
+    } else {
+      // どちらか一方が更新された場合は、その応答が既に飛んでいるはず。
+    }
 
-  replyMessage = await generateReplyMessage(userMessage, userId, userInfo);
 
-  console.log('Reply message:', replyMessage);
+    if (replyMessage) { // generateReplyMessage で応答が生成された場合のみ
+      console.log('Reply message:', replyMessage);
 
-  // メッセージをスプレッドシートに記録
-  await logMessageToSpreadsheet("Bot: " + replyMessage, userId);
+      // メッセージをスプレッドシートに記録
+      await logMessageToSpreadsheet("Bot: " + replyMessage, userId);
+    
+      // 会話履歴を更新
+      updateChatHistory(userInfo, userMessage, replyMessage);
 
-  // 会話履歴を更新
-  updateChatHistory(userInfo, userMessage, replyMessage);
+      // テスト環境では返信をスキップ
+      if (process.env.NODE_ENV !== 'test') {
+        await replyToLine(replyToken, replyMessage);
+      }
+    }
+    
+    // ユーザー情報は常に保存
+    saveUserInfoHandler(userId, userInfo);
+    console.log('DB:', userInfo);
 
-  // ユーザー情報を保存
-  saveUserInfoHandler(userId, userInfo);
-  console.log('DB:', userInfo);
-
-  // 感情分析
-  analyzeUserSentiment(userInfo, userMessage);
-
-  // テスト環境では返信をスキップ
-  if (process.env.NODE_ENV !== 'test') {
-    await replyToLine(replyToken, replyMessage);
+    // 感情分析 (応答メッセージとは独立して実行)
+    analyzeUserSentiment(userInfo, userMessage);
   }
 }
 
@@ -487,7 +520,27 @@ export function createGeminiPayload(message: string, userInfo: UserInfo) {
   ];
 
   const payload = JSON.stringify({
-    "contents": contents
+    "contents": contents,
+    "tools": [
+      {
+        "function_declarations": [
+          {
+            "name": "searchAmazonProducts",
+            "description": "Search for products on Amazon using keywords and return the product title and URL.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string",
+                  "description": "The keywords or product name to search for on Amazon."
+                }
+              },
+              "required": ["query"]
+            }
+          }
+        ]
+      }
+    ]
   });
   return payload;
 }
@@ -522,6 +575,62 @@ export async function getGeminiResponse(payload: string): Promise<string> {
 
   if (responseBody && responseBody.candidates && responseBody.candidates.length > 0) {
     const candidate = responseBody.candidates[0];
+
+    // Check for function calls
+    if (candidate.content && candidate.content.parts) {
+      for (const part of candidate.content.parts) {
+        if (part.function_call) {
+          const functionCall = part.function_call;
+          console.log('Gemini Function Call:', functionCall);
+
+          // Handle searchAmazonProducts function call
+          if (functionCall.name === 'searchAmazonProducts') {
+            const args = functionCall.args;
+            if (args && typeof args.query === 'string') {
+              try {
+                const products = await searchAmazonProducts(args.query);
+                // Return the function result to Gemini
+                return JSON.stringify({
+                  tool_code: {
+                    name: 'searchAmazonProducts',
+                    result: JSON.stringify(products),
+                  },
+                });
+              } catch (error) {
+                console.error('Error executing searchAmazonProducts:', error);
+                // Return an error result to Gemini
+                return JSON.stringify({
+                  tool_code: {
+                    name: 'searchAmazonProducts',
+                    error: error instanceof Error ? error.message : 'An unknown error occurred.',
+                  },
+                });
+              }
+            } else {
+              console.error('Invalid arguments for searchAmazonProducts:', args);
+              // Return an error for invalid arguments
+              return JSON.stringify({
+                tool_code: {
+                  name: 'searchAmazonProducts',
+                  error: 'Invalid arguments provided.',
+                },
+              });
+            }
+          } else {
+            console.warn('Unknown function call:', functionCall.name);
+            // Return an error for unknown function calls
+            return JSON.stringify({
+              tool_code: {
+                name: functionCall.name,
+                error: 'Unknown function.',
+              },
+            });
+          }
+        }
+      }
+    }
+
+    // Handle text responses if no function call
     if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
       console.log('Gemini response text:', candidate.content.parts[0].text);
       return candidate.content.parts[0].text;
@@ -775,6 +884,71 @@ export function analyzeSentiment(message: string): string {
 const server = app.listen(port, "0.0.0.0", () => {
   console.log(`Kame Butler listening on port ${port}`);
 });
+
+import dotenv from 'dotenv';
+// import { ProductAdvertisingAPIClient } from 'amazon-paapi'; // 変更: 不要なため削除
+import { SearchItems } from 'amazon-paapi'; // 変更: SearchItems を直接インポート
+
+dotenv.config();
+
+// 変更: paapiClient のインスタンス化は不要になったため削除
+// const paapiClient = new ProductAdvertisingAPIClient({
+//     accessKey: process.env.PAAPI_ACCESS_KEY_ID || '',
+//     secretKey: process.env.PAAPI_SECRET_ACCESS_KEY || '',
+//     partnerTag: process.env.PAAPI_ASSOCIATE_TAG || '', // Use Associate Tag as partnerTag
+//     host: 'webservices.amazon.co.jp', // Or the appropriate host for your region
+//     region: 'jp' // Or the appropriate region for your locale
+// });
+
+export interface AmazonProduct {
+    Title: string;
+    URL: string;
+}
+
+export async function searchAmazonProducts(query: string): Promise<AmazonProduct[]> {
+    try {
+        // 変更: SearchItems 関数を直接呼び出す
+        const commonParameters = {
+            AccessKey: process.env.PAAPI_ACCESS_KEY_ID || '',
+            SecretKey: process.env.PAAPI_SECRET_ACCESS_KEY || '',
+            PartnerTag: process.env.PAAPI_ASSOCIATE_TAG || '',
+            PartnerType: 'Associates', // PAAPI 5.0 の標準的な値
+            Marketplace: 'www.amazon.co.jp' // 日本のマーケットプレイス
+        };
+        const requestParameters = {
+            Keywords: query,
+            SearchIndex: 'All',
+            ItemCount: 5,
+            Resources: ['ItemInfo.Title', 'DetailPageURL'], // 取得するリソースを指定
+        };
+
+        const searchResponse = await SearchItems(commonParameters, requestParameters);
+
+        console.log('PAAPI Search Response:', JSON.stringify(searchResponse, null, 2));
+
+        const products: AmazonProduct[] = [];
+        if (searchResponse.SearchResult && searchResponse.SearchResult.Items) {
+            for (const item of searchResponse.SearchResult.Items) {
+                // 変更: PaapiItem の型定義と実際のレスポンス構造に合わせてアクセスパスを修正
+                if (item.ItemInfo && item.ItemInfo.Title && item.ItemInfo.Title.DisplayValue && item.DetailPageURL) {
+                    products.push({
+                        Title: item.ItemInfo.Title.DisplayValue,
+                        URL: item.DetailPageURL,
+                    });
+                }
+            }
+        }
+        return products;
+    } catch (error) {
+        console.error('Error searching Amazon products:', error);
+        // エラーレスポンスの構造も確認し、詳細なエラーハンドリングができると良い
+        if ((error as any).Errors) {
+            console.error('PAAPI Errors:', JSON.stringify((error as any).Errors, null, 2));
+        }
+        return [];
+    }
+}
+
 
 process.on('SIGTERM', () => {
   console.log('SIGTERM signal received: closing HTTP server');

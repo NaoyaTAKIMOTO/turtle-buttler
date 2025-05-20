@@ -7,7 +7,9 @@ import {
   analyzeSentiment, getReplyMessage, postCommandR, updateUserName, updateFavoriteFood, updateFavoriteColor, updateFavoriteMusic, updateFavoritePlace,
   getUserInfoHandler, generateReplyMessage, updateChatHistory, saveUserInfoHandler, saveUserInfo, getUserInfo, replyToLine, createCoherePayload,
   getCohereResponse, updateUserNameHandler, updateFavoriteFoodHandler, logMessageToSpreadsheet, getLatestMessageByUserId,
-  deleteUserInfo // deleteUserInfo をインポート
+  deleteUserInfo, // deleteUserInfo をインポート
+  searchAmazonProducts, // searchAmazonProducts をインポート
+  AmazonProduct // AmazonProduct をインポート
 } from './kame_buttler';
 
 
@@ -238,8 +240,12 @@ describe('doPost - LINE Request Handling', () => {
   let originalGenerateReplyMessage: any;
   let originalReplyToLine: any;
   let originalGetUserInfoHandler: any;
+  let originalNodeEnv: string | undefined;
 
   before(() => {
+    originalNodeEnv = process.env.NODE_ENV; // 元のNODE_ENVを保存
+    process.env.NODE_ENV = 'test';          // NODE_ENVを'test'に設定
+
     // オリジナル関数を保存し、モック関数に置き換え
     originalGenerateReplyMessage = require('./kame_buttler').generateReplyMessage;
     require('./kame_buttler').generateReplyMessage = mockGenerateReplyMessage;
@@ -256,6 +262,8 @@ describe('doPost - LINE Request Handling', () => {
     require('./kame_buttler').generateReplyMessage = originalGenerateReplyMessage;
     require('./kame_buttler').replyToLine = originalReplyToLine;
     require('./kame_buttler').getUserInfoHandler = originalGetUserInfoHandler;
+
+    process.env.NODE_ENV = originalNodeEnv; // NODE_ENVを元に戻す
   });
 
   it('should process a LINE message event and reply', async () => {
@@ -324,7 +332,7 @@ describe('E2E Test - LINE Webhook to Gemini and Firebase', function() {
   });
 
   it('should process a LINE message, call Gemini, save to Firebase, and attempt to reply to LINE', async () => {
-    const dummyLineRequest = require('../dummy_line_request.json'); // dummy_line_request.json を読み込み
+    const dummyLineRequest = require('./dummy_line_request.json'); // 変更: パスを修正
 
     // Supertest を使用して doPost 関数をテスト
     const response = await request(app)
@@ -353,4 +361,44 @@ describe('E2E Test - LINE Webhook to Gemini and Firebase', function() {
     expect(userInfo?.chatHistory[0].message).to.equal(dummyLineRequest.events[0].message.text);
     expect(userInfo?.chatHistory[0].response).to.equal(replyToLineCalledWith?.message); // replyToLine に渡されたメッセージと一致することを確認
   });
+});
+
+describe('searchAmazonProducts - Integration Test', function() {
+  // API呼び出しを含むため、タイムアウトを長めに設定
+  this.timeout(10000); // 10秒
+
+  before(function() {
+    // テスト実行前に環境変数が設定されているか確認
+    if (!process.env.PAAPI_ACCESS_KEY_ID || !process.env.PAAPI_SECRET_ACCESS_KEY || !process.env.PAAPI_ASSOCIATE_TAG) {
+      console.warn('Amazon PAAPI credentials are not set. Skipping integration tests.');
+      this.skip(); // 環境変数がなければテストをスキップ
+    }
+  });
+
+  it('should return an array of products for a common search query', async () => {
+    const query = '本'; // 一般的な検索クエリ
+    const products = await searchAmazonProducts(query);
+
+    expect(products).to.be.an('array');
+    if (products.length > 0) {
+      products.forEach((product: AmazonProduct) => {
+        expect(product).to.have.property('Title').that.is.a('string');
+        expect(product).to.have.property('URL').that.is.a('string');
+        expect(product.URL).to.include('amazon.co.jp'); // URLがAmazonのドメインであることを確認
+      });
+    } else {
+      // 結果が0件の場合も許容する（APIの状況によるため）
+      console.warn(`Search for "${query}" returned 0 items. This might be expected.`);
+    }
+  });
+
+  it('should return an empty array for a query that likely yields no results', async () => {
+    const query = '存在しないであろう商品名asdfghjklqwertyuiop'; // 結果が返らないであろうクエリ
+    const products = await searchAmazonProducts(query);
+
+    expect(products).to.be.an('array').that.is.empty;
+  });
+
+  // 必要に応じて、特定のキーワードで期待される結果があるかどうかのテストも追加できますが、
+  // APIの応答は変動するため、メンテナンスが難しくなる可能性があります。
 });

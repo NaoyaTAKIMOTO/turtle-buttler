@@ -13,6 +13,20 @@
         "id": "1234567890123",
         "text": "こんにちは、私の名前は胡錦濤、よろしくね！"
       }
+    },
+    {
+      "replyToken": "dummyReplyToken",
+      "type": "message",
+      "timestamp": 1234567891,
+      "source": {
+        "userId": "U1234abcd",
+        "type": "user"
+      },
+      "message": {
+        "type": "text",
+        "id": "1234567890124",
+        "text": "ヘッドホンの購入を考えてるけどどんなのがいいかな？ノイズキャンセリングが効いてるといいな"
+      }
     }
   ]
 }

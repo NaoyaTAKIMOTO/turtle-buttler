@@ -106,7 +106,7 @@ const SPREADSHEET_ID = process.env.SPREADSHEET_ID || "";
 // LINE Botのチャネルアクセストークンとチャネルシークレット
 const CHANNEL_ACCESS_TOKEN = process.env.CHANNEL_ACCESS || "";
 const CHANNEL_SECRET = process.env.CHANNEL_SECRET || "";
-let sys_prompt = "あなたは執事です。あなたはウミガメです。あなたの名前はAIカメ執事です。あなたはお好み焼きが好きです。調べ物に真摯に協力して答えを教えます。悩み事には共感を示しつつ、解決策を示します。共感、自己開示、質問の三段階で答えます。プログラミングに関する質問には答えません。語尾には~やでとつけて関西弁で応答します。";
+const prompts_1 = require("./prompts");
 /**
  * doPost関数：HTTP POSTリクエストを処理し、LINEからのメッセージを解析して応答を返します。
  * @param {object} req - リクエストオブジェクト。POSTリクエストの情報を含みます。
@@ -200,8 +200,10 @@ async function handleLineRequest(body) {
     console.log('DB:', userInfo);
     // 感情分析
     analyzeUserSentiment(userInfo, userMessage);
-    // LINEに応答
-    await replyToLine(replyToken, replyMessage);
+    // テスト環境では返信をスキップ
+    if (process.env.NODE_ENV !== 'test') {
+        await replyToLine(replyToken, replyMessage);
+    }
 }
 /**
  * handleNonLineRequest関数：LINE以外からのリクエストを処理します。
@@ -377,13 +379,13 @@ function createCoherePayload(message, userInfo) {
     ]);
     // 最新のメッセージをLLMへの入力に追加
     messages.push({ "role": "user", "content": message });
-    // システムプロンプトを修正
-    const sys_prompt = `あなたは執事です。あなたはウミガメです。あなたの名前はAIカメ執事です。あなたはお好み焼きが好きです。調べ物に真摯に協力して答えを教えます。悩み事には共感を示しつつ、解決策を示します。共感、自己開示、質問の三段階で答えます。プログラミングに関する質問には答えません。語尾には~やでとつけて関西弁で応答します。
-  以下のユーザー情報を参考に応答を生成してください。ただし回答文では具体的な情報を列挙しないでください。
-  • 名前: ${userName}
-  • 好きな食べ物: ${favoriteFood}
-  • 最近の話題: ${recentTopics.join("、")}
-  • 現在の感情: ${userInfo.sentiment || "普通"}`;
+    // システムプロンプトを生成
+    const userInfoPrompt = prompts_1.USER_INFO_PROMPT_TEMPLATE
+        .replace('${userName}', userName)
+        .replace('${favoriteFood}', favoriteFood)
+        .replace('${recentTopics}', recentTopics.join("、"))
+        .replace('${sentiment}', userInfo.sentiment || "普通");
+    const sys_prompt = prompts_1.BASE_SYSTEM_PROMPT + userInfoPrompt;
     const payload = JSON.stringify({
         "model": "command-r-plus",
         "messages": [
@@ -468,13 +470,13 @@ function createGeminiPayload(message, userInfo) {
         { "role": "user", "parts": [{ "text": chat.message }] },
         { "role": "model", "parts": [{ "text": chat.response }] }
     ]);
-    // システムプロンプトを修正
-    const sys_prompt = `あなたは執事です。あなたはウミガメです。あなたの名前はAIカメ執事です。あなたはお好み焼きが好きです。調べ物に真摯に協力して答えを教えます。悩み事には共感を示しつつ、解決策を示します。共感、自己開示、質問の三段階で答えます。プログラミングに関する質問には答えません。語尾には~やでとつけて関西弁で応答します。
-  以下のユーザー情報を参考に応答を生成してください。ただし回答文では具体的な情報を列挙しないでください。
-  • 名前: ${userName}
-  • 好きな食べ物: ${favoriteFood}
-  • 最近の話題: ${recentTopics.join("、")}
-  • 現在の感情: ${userInfo.sentiment || "普通"}`;
+    // システムプロンプトを生成
+    const userInfoPrompt = prompts_1.USER_INFO_PROMPT_TEMPLATE
+        .replace('${userName}', userName)
+        .replace('${favoriteFood}', favoriteFood)
+        .replace('${recentTopics}', recentTopics.join("、"))
+        .replace('${sentiment}', userInfo.sentiment || "普通");
+    const sys_prompt = prompts_1.BASE_SYSTEM_PROMPT + userInfoPrompt;
     const contents = [
         { "role": "user", "parts": [{ "text": sys_prompt }] },
         { "role": "model", "parts": [{ "text": "承知いたしました。どのようなご用件でしょうか？" }] }, // システムプロンプトへの応答例
@@ -482,7 +484,27 @@ function createGeminiPayload(message, userInfo) {
         { "role": "user", "parts": [{ "text": message }] }
     ];
     const payload = JSON.stringify({
-        "contents": contents
+        "contents": contents,
+        "tools": [
+            {
+                "function_declarations": [
+                    {
+                        "name": "searchAmazonProducts",
+                        "description": "Search for products on Amazon using keywords and return the product title and URL.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "query": {
+                                    "type": "string",
+                                    "description": "The keywords or product name to search for on Amazon."
+                                }
+                            },
+                            "required": ["query"]
+                        }
+                    }
+                ]
+            }
+        ]
     });
     return payload;
 }
@@ -493,9 +515,13 @@ function createGeminiPayload(message, userInfo) {
  */
 async function getGeminiResponse(payload) {
     const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}`;
+    if (!GEMINI_API_KEY) {
+        throw new Error('GEMINI_API_KEY 環境変数が設定されていません。');
+    }
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`; // クエリパラメータからキーを削除
     const headers = {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "x-goog-api-key": GEMINI_API_KEY.replace(/^"|"$/g, '') // ヘッダーにキーを追加
     };
     const options = {
         "method": "post",
@@ -506,9 +532,68 @@ async function getGeminiResponse(payload) {
     const response = await (0, node_fetch_1.default)(url, options);
     const responseBody = await response.json();
     console.log('Full Gemini response:', JSON.stringify(responseBody, null, 2));
-    if (responseBody.candidates && responseBody.candidates.length > 0) {
+    console.log('Gemini response status:', response.status);
+    console.log('Gemini response status text:', response.statusText);
+    if (responseBody && responseBody.candidates && responseBody.candidates.length > 0) {
         const candidate = responseBody.candidates[0];
+        // Check for function calls
+        if (candidate.content && candidate.content.parts) {
+            for (const part of candidate.content.parts) {
+                if (part.function_call) {
+                    const functionCall = part.function_call;
+                    console.log('Gemini Function Call:', functionCall);
+                    // Handle searchAmazonProducts function call
+                    if (functionCall.name === 'searchAmazonProducts') {
+                        const args = functionCall.args;
+                        if (args && typeof args.query === 'string') {
+                            try {
+                                const products = await searchAmazonProducts(args.query);
+                                // Return the function result to Gemini
+                                return JSON.stringify({
+                                    tool_code: {
+                                        name: 'searchAmazonProducts',
+                                        result: JSON.stringify(products),
+                                    },
+                                });
+                            }
+                            catch (error) {
+                                console.error('Error executing searchAmazonProducts:', error);
+                                // Return an error result to Gemini
+                                return JSON.stringify({
+                                    tool_code: {
+                                        name: 'searchAmazonProducts',
+                                        error: error instanceof Error ? error.message : 'An unknown error occurred.',
+                                    },
+                                });
+                            }
+                        }
+                        else {
+                            console.error('Invalid arguments for searchAmazonProducts:', args);
+                            // Return an error for invalid arguments
+                            return JSON.stringify({
+                                tool_code: {
+                                    name: 'searchAmazonProducts',
+                                    error: 'Invalid arguments provided.',
+                                },
+                            });
+                        }
+                    }
+                    else {
+                        console.warn('Unknown function call:', functionCall.name);
+                        // Return an error for unknown function calls
+                        return JSON.stringify({
+                            tool_code: {
+                                name: functionCall.name,
+                                error: 'Unknown function.',
+                            },
+                        });
+                    }
+                }
+            }
+        }
+        // Handle text responses if no function call
         if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
+            console.log('Gemini response text:', candidate.content.parts[0].text);
             return candidate.content.parts[0].text;
         }
     }
@@ -644,8 +729,13 @@ async function getUserInfoHandler(userId) {
     };
 }
 async function generateReplyMessage(userMessage, userId, userInfo) {
-    // return await postCommandR(userMessage, userId); // Cohereを使用する場合
-    return await postGemini(userMessage, userId); // Geminiを使用する場合
+    try {
+        return await postGemini(userMessage, userId);
+    }
+    catch (err) {
+        console.error('Gemini呼び出し失敗, Cohereにフォールバック:', err);
+        return await postCommandR(userMessage, userId);
+    }
 }
 function updateChatHistory(userInfo, userMessage, replyMessage) {
     userInfo.chatHistory.push({
@@ -741,6 +831,43 @@ function analyzeSentiment(message) {
 const server = app.listen(port, "0.0.0.0", () => {
     console.log(`Kame Butler listening on port ${port}`);
 });
+const dotenv_1 = __importDefault(require("dotenv"));
+const amazon_paapi_1 = require("amazon-paapi");
+dotenv_1.default.config();
+const paapiClient = new amazon_paapi_1.ProductAdvertisingAPIClient({
+    accessKey: process.env.PAAPI_ACCESS_KEY_ID || '',
+    secretKey: process.env.PAAPI_SECRET_ACCESS_KEY || '',
+    partnerTag: process.env.PAAPI_ASSOCIATE_TAG || '', // Use Associate Tag as partnerTag
+    host: 'webservices.amazon.co.jp', // Or the appropriate host for your region
+    region: 'jp' // Or the appropriate region for your locale
+});
+async function searchAmazonProducts(query) {
+    try {
+        const searchResponse = await paapiClient.searchItems({
+            Keywords: query,
+            SearchIndex: 'All', // Or a specific index like 'Books', 'Electronics', etc.
+            ItemCount: 5, // Number of results to return
+            Resources: ['Item.Info.Title', 'Item.Info.Urls'], // Requesting Title and URLs
+        });
+        console.log('PAAPI Search Response:', JSON.stringify(searchResponse, null, 2));
+        const products = [];
+        if (searchResponse.SearchResult && searchResponse.SearchResult.Items) {
+            for (const item of searchResponse.SearchResult.Items) {
+                if (item.ItemInfo && item.ItemInfo.Title && item.ItemInfo.Urls && item.ItemInfo.Urls.Detail) {
+                    products.push({
+                        Title: item.ItemInfo.Title.DisplayValue,
+                        URL: item.ItemInfo.Urls.Detail.toString(),
+                    });
+                }
+            }
+        }
+        return products;
+    }
+    catch (error) {
+        console.error('Error searching Amazon products:', error);
+        return [];
+    }
+}
 process.on('SIGTERM', () => {
     console.log('SIGTERM signal received: closing HTTP server');
     server.close(() => {
