@@ -525,14 +525,14 @@ export function createGeminiPayload(message: string, userInfo: UserInfo) {
       {
         "function_declarations": [
           {
-            "name": "searchAmazonProducts",
-            "description": "Search for products on Amazon using keywords and return the product title and URL.",
+            "name": "searchRakutenProducts",
+            "description": "Search for products on Rakuten Ichiba using keywords and return the product title, URL, and price.",
             "parameters": {
               "type": "object",
               "properties": {
                 "query": {
                   "type": "string",
-                  "description": "The keywords or product name to search for on Amazon."
+                  "description": "The keywords or product name to search for on Rakuten Ichiba."
                 }
               },
               "required": ["query"]
@@ -583,35 +583,35 @@ export async function getGeminiResponse(payload: string): Promise<string> {
           const functionCall = part.function_call;
           console.log('Gemini Function Call:', functionCall);
 
-          // Handle searchAmazonProducts function call
-          if (functionCall.name === 'searchAmazonProducts') {
+          // Handle searchRakutenProducts function call
+          if (functionCall.name === 'searchRakutenProducts') {
             const args = functionCall.args;
             if (args && typeof args.query === 'string') {
               try {
-                const products = await searchAmazonProducts(args.query);
+                const products = await searchRakutenProducts(args.query);
                 // Return the function result to Gemini
                 return JSON.stringify({
                   tool_code: {
-                    name: 'searchAmazonProducts',
+                    name: 'searchRakutenProducts',
                     result: JSON.stringify(products),
                   },
                 });
               } catch (error) {
-                console.error('Error executing searchAmazonProducts:', error);
+                console.error('Error executing searchRakutenProducts:', error);
                 // Return an error result to Gemini
                 return JSON.stringify({
                   tool_code: {
-                    name: 'searchAmazonProducts',
+                    name: 'searchRakutenProducts',
                     error: error instanceof Error ? error.message : 'An unknown error occurred.',
                   },
                 });
               }
             } else {
-              console.error('Invalid arguments for searchAmazonProducts:', args);
+              console.error('Invalid arguments for searchRakutenProducts:', args);
               // Return an error for invalid arguments
               return JSON.stringify({
                 tool_code: {
-                  name: 'searchAmazonProducts',
+                  name: 'searchRakutenProducts',
                   error: 'Invalid arguments provided.',
                 },
               });
@@ -886,65 +886,48 @@ const server = app.listen(port, "0.0.0.0", () => {
 });
 
 import dotenv from 'dotenv';
-// import { ProductAdvertisingAPIClient } from 'amazon-paapi'; // 変更: 不要なため削除
-import { SearchItems } from 'amazon-paapi'; // 変更: SearchItems を直接インポート
 
 dotenv.config();
 
-// 変更: paapiClient のインスタンス化は不要になったため削除
-// const paapiClient = new ProductAdvertisingAPIClient({
-//     accessKey: process.env.PAAPI_ACCESS_KEY_ID || '',
-//     secretKey: process.env.PAAPI_SECRET_ACCESS_KEY || '',
-//     partnerTag: process.env.PAAPI_ASSOCIATE_TAG || '', // Use Associate Tag as partnerTag
-//     host: 'webservices.amazon.co.jp', // Or the appropriate host for your region
-//     region: 'jp' // Or the appropriate region for your locale
-// });
-
-export interface AmazonProduct {
+export interface RakutenProduct {
     Title: string;
     URL: string;
+    Price: number;
 }
 
-export async function searchAmazonProducts(query: string): Promise<AmazonProduct[]> {
+export async function searchRakutenProducts(query: string): Promise<RakutenProduct[]> {
     try {
-        // 変更: SearchItems 関数を直接呼び出す
-        const commonParameters = {
-            AccessKey: process.env.PAAPI_ACCESS_KEY_ID || '',
-            SecretKey: process.env.PAAPI_SECRET_ACCESS_KEY || '',
-            PartnerTag: process.env.PAAPI_ASSOCIATE_TAG || '',
-            PartnerType: 'Associates', // PAAPI 5.0 の標準的な値
-            Marketplace: 'www.amazon.co.jp' // 日本のマーケットプレイス
-        };
-        const requestParameters = {
-            Keywords: query,
-            SearchIndex: 'All',
-            ItemCount: 5,
-            Resources: ['ItemInfo.Title', 'DetailPageURL'], // 取得するリソースを指定
-        };
+        const applicationId = process.env.RAKUTEN_APPLICATION_ID;
+        const affiliateId = process.env.RAKUTEN_AFFILIATE_ID;
 
-        const searchResponse = await SearchItems(commonParameters, requestParameters);
+        if (!applicationId || !affiliateId) {
+            console.error('RAKUTEN_APPLICATION_ID or RAKUTEN_AFFILIATE_ID is not set.');
+            return [];
+        }
 
-        console.log('PAAPI Search Response:', JSON.stringify(searchResponse, null, 2));
+        const url = `https://app.rakuten.co.jp/services/api/IchibaItem/Search/20220601?applicationId=${applicationId}&affiliateId=${affiliateId}&keyword=${encodeURIComponent(query)}&hits=5&format=json`;
 
-        const products: AmazonProduct[] = [];
-        if (searchResponse.SearchResult && searchResponse.SearchResult.Items) {
-            for (const item of searchResponse.SearchResult.Items) {
-                // 変更: PaapiItem の型定義と実際のレスポンス構造に合わせてアクセスパスを修正
-                if (item.ItemInfo && item.ItemInfo.Title && item.ItemInfo.Title.DisplayValue && item.DetailPageURL) {
+        const response = await fetch(url);
+        const responseBody: any = await response.json();
+
+        console.log('Rakuten API Search Response:', JSON.stringify(responseBody, null, 2));
+
+        const products: RakutenProduct[] = [];
+        if (responseBody.Items && Array.isArray(responseBody.Items)) {
+            for (const itemWrapper of responseBody.Items) {
+                const item = itemWrapper.Item;
+                if (item && item.itemName && item.itemUrl && item.itemPrice) {
                     products.push({
-                        Title: item.ItemInfo.Title.DisplayValue,
-                        URL: item.DetailPageURL,
+                        Title: item.itemName,
+                        URL: item.itemUrl,
+                        Price: item.itemPrice,
                     });
                 }
             }
         }
         return products;
     } catch (error) {
-        console.error('Error searching Amazon products:', error);
-        // エラーレスポンスの構造も確認し、詳細なエラーハンドリングができると良い
-        if ((error as any).Errors) {
-            console.error('PAAPI Errors:', JSON.stringify((error as any).Errors, null, 2));
-        }
+        console.error('Error searching Rakuten products:', error);
         return [];
     }
 }

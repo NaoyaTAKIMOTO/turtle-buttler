@@ -66,8 +66,8 @@ done
 echo "All secrets created/updated and IAM bindings applied."
 
 # Cloud Run サービスへの管理者権限付与
-echo "Granting Cloud Run Admin to Cloud Build SA on service: ${PROJECT_ID}/asia-northeast1/kame-buttler"
-gcloud run services add-iam-policy-binding kame-buttler \
+echo "Granting Cloud Run Admin to Cloud Build SA on service: ${PROJECT_ID}/asia-northeast1/turtle-buttler"
+gcloud run services add-iam-policy-binding turtle-buttler \
   --project="${PROJECT_ID}" \
   --region="asia-northeast1" \
   --platform="managed" \
@@ -75,8 +75,8 @@ gcloud run services add-iam-policy-binding kame-buttler \
   --role="roles/run.admin"
 
 # Compute Engine デフォルトSA に Cloud Run 管理者権限を付与
-echo "Granting Cloud Run Admin to Compute Engine default SA on service: ${PROJECT_ID}/asia-northeast1/kame-buttler"
-gcloud run services add-iam-policy-binding kame-buttler \
+echo "Granting Cloud Run Admin to Compute Engine default SA on service: ${PROJECT_ID}/asia-northeast1/turtle-buttler"
+gcloud run services add-iam-policy-binding turtle-buttler \
   --project="${PROJECT_ID}" \
   --region="asia-northeast1" \
   --platform="managed" \
