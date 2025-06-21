@@ -1,135 +1,256 @@
 # AI カメ執事 LINE Bot
 
 ## プロジェクト概要
-- プロジェクト名: Kame Butler
-- バージョン: 1.0.0
-- 概要: Express/Node.js と TypeScript で実装された LINE Messaging API ボット。  
-  Firebase Realtime Database、Google Sheets、Cohere API、Gemini API、楽天APIを活用し、ユーザー情報管理やメッセージログの記録、LLM 連携による応答生成を行います。また、独立したユーザープロファイルサービスも提供します。
+- **プロジェクト名**: Kame Butler (AI カメ執事)
+- **バージョン**: 1.0.0
+- **概要**: TypeScript/Node.js で実装された関西弁を話すカメ執事キャラクターの LINE Bot。  
+  マイクロサービス・アーキテクチャを採用し、Firebase、Google Sheets、複数のLLM API、楽天APIを活用した高機能な対話システムです。
+
+## アーキテクチャ
+
+### プロジェクト構造
+```
+turtle-buttler/
+├── src/                     # メインアプリケーション
+├── apps/                    # マイクロサービス
+│   ├── user-profile-service/ # ユーザープロファイル管理
+│   └── rakuten-server/       # 楽天API ラッパー
+├── config/                  # 設定ファイル
+├── docs/                    # ドキュメント
+└── infrastructure/          # インフラ設定
+    ├── docker/             # Docker 設定
+    ├── cloudbuild/         # Cloud Build 設定
+    └── scripts/            # デプロイスクリプト
+```
 
 ## 技術スタック
-- Node.js (v20) + TypeScript
-- Express フレームワーク
-- Firebase Admin SDK (Realtime Database)
-- Google Sheets API
-- Cohere Command-R-Plus API
-- Google Gemini API
-- 楽天商品検索API
-- dotenv
-- Docker
+
+### コア技術
+- **Runtime**: Node.js (v20) + TypeScript
+- **Framework**: Express.js
+- **Database**: Firebase Realtime Database
+- **Logging**: Google Sheets API
+- **Deployment**: Google Cloud Run
+- **Container**: Docker
+
+### AI & LLM
+- **Cohere Command-R-Plus API**: 自然な関西弁会話
+- **Google Gemini API**: 高度な推論とツール連携
+- **感情分析**: カスタム実装
+
+### 外部サービス連携
+- **LINE Messaging API**: チャットインターフェース
+- **楽天商品検索API**: 商品検索・推奨
+- **MCP (Model Context Protocol)**: マイクロサービス連携
 
 ## 必要な環境変数
-プロジェクトルートに `.env` ファイルを作成し、以下を設定してください（Base64エンコード済みの JSON を利用）:
+プロジェクトルートに `.env` ファイルを作成し、以下を設定してください:
 
-```
-CREDENTIALS_ADMIN        // Firebase Admin SDK サービスアカウント JSON を Base64 エンコードした文字列
-CREDENTIALS              // Google API 認証情報 JSON を Base64 エンコードした文字列
-CREDENTIALS_JSON         // Base64 未使用時の Google API 認証ファイルパス
-FIREBASE_URL             // Firebase Realtime Database の URL
-SPREADSHEET_ID           // Google Sheets のスプレッドシート ID
-CHANNEL_ACCESS           // LINE Messaging API チャネルアクセストークン
-CHANNEL_SECRET           // LINE Messaging API チャネルシークレット
-CO_API_KEY               // Cohere API キー
-PORT                     // ボットがリッスンするポート番号（省略時 8080）
-NODE_ENV                 // 実行環境（development|production）
-```
-
-## セットアップ & 実行
-
+### 必須環境変数
 ```bash
-# 依存関係をインストール
+# Firebase
+CREDENTIALS_ADMIN=<Base64エンコードされたFirebase Admin SDK JSON>
+FIREBASE_URL=<Firebase Realtime Database URL>
+
+# Google Services  
+CREDENTIALS=<Base64エンコードされたGoogle API認証情報JSON>
+SPREADSHEET_ID=<Google Sheets スプレッドシートID>
+
+# LINE Messaging API
+CHANNEL_ACCESS=<LINEチャネルアクセストークン>
+CHANNEL_SECRET=<LINEチャネルシークレット>
+
+# AI/LLM APIs
+CO_API_KEY=<Cohere API キー>
+GEMINI_API_KEY=<Google Gemini API キー>
+
+# 楽天API
+RAKUTEN_APPLICATION_ID=<楽天アプリケーションID>
+RAKUTEN_AFFILIATE_ID=<楽天アフィリエイトID>
+
+# システム設定
+PORT=8080
+NODE_ENV=development
+```
+
+### オプション（マイクロサービス利用時）
+```bash
+USER_PROFILE_SERVICE_URL=<ユーザープロファイルサービスURL>
+RAKUTEN_SERVER_URL=<楽天サーバーURL>
+```
+
+## 開発環境セットアップ
+
+### 1. 依存関係のインストール
+```bash
+# メインアプリケーション
 npm install
 
-# TypeScript をコンパイル
+# マイクロサービス（オプション）
+cd apps/user-profile-service && npm install
+cd apps/rakuten-server && npm install
+```
+
+### 2. ビルド
+```bash
+# メインアプリケーションのみ
 npm run build
 
-# アプリケーションを起動
+# 全アプリケーション
+make build-all
+```
+
+### 3. ローカル実行
+```bash
+# 開発環境で実行
 npm start
+
+# または make コマンド
+make build && npm start
 ```
 
-## ビルド&デプロイ
-```zsh
-bash scripts/setup_gcp.sh || 
-gcloud builds submit --config=cloudbuild.yaml .
-```
-前提として、
+## GCP デプロイ
 
-gcloud auth login による認証済み
-gcloud config set project YOUR_PROJECT_ID で対象プロジェクトが設定済み
-であることを確認してください。
+### 前提条件
+```bash
+# GCP CLI 認証
+gcloud auth login
+gcloud config set project turtle-buttler
+
+# 環境変数の設定
+# .env ファイルを作成し、必要な環境変数を設定
+```
+
+### デプロイコマンド
+```bash
+# 全サービスデプロイ（推奨）
+make deploy-all
+
+# 個別デプロイ
+make setup          # GCP シークレットセットアップ
+make deploy-mcp     # マイクロサービスデプロイ
+make deploy         # メインアプリケーションデプロイ
+```
+
+### 現在のデプロイ先
+- **メインアプリケーション**: `https://turtle-buttler-65391589168.asia-northeast1.run.app`
+- **リージョン**: asia-northeast1 (東京)
+- **プラットフォーム**: Google Cloud Run
 
 ## テスト
 
+### 単体テスト
 ```bash
+# メインアプリケーションのテスト
 npm test
 ```
 
-### e2e
-```zsh
-docker rm -f turtle-buttler ||docker build -t turtle-butter . || true && docker run -d --name turtle-buttler -p 8080:8080 --env-file .env -e NODE_ENV=test turtle-buttler && sleep 2 && curl -s -X POST http://localhost:8080/ -H "Content-Type: application/json" --data @dummy_line_request.json && echo "\n--- LOGS ---" && docker logs turtle-buttler
+### E2E テスト（Docker）
+```bash
+# Docker を使用した統合テスト
+docker rm -f turtle-buttler || true
+docker build -f infrastructure/docker/Dockerfile -t turtle-buttler .
+docker run -d --name turtle-buttler -p 8080:8080 --env-file .env -e NODE_ENV=test turtle-buttler
+sleep 2
+curl -s -X POST http://localhost:8080/ \
+  -H "Content-Type: application/json" \
+  --data @config/dummy_line_request.json
+echo "\n--- LOGS ---"
+docker logs turtle-buttler
 ```
 
 ## Docker での実行
 
-Docker イメージをビルド・実行する手順:
-
+### ローカル Docker 実行
 ```bash
-# イメージのビルド
-docker build -t kame-buttler .
+# イメージのビルド（新しいDockerfile パス）
+docker build -f infrastructure/docker/Dockerfile -t kame-buttler .
 
-# コンテナの起動（ポートマッピング: 8080）
+# コンテナの起動
 docker run -d -p 8080:8080 --env-file .env kame-buttler
-
 ```
 
-### Dockerfile
-
-```dockerfile
-FROM node:20-alpine
-WORKDIR /app
-
-# 依存関係インストール
-COPY package*.json tsconfig.json ./
-RUN npm install
-
-# ソースコピー & ビルド
-COPY . .
-RUN npm run build
-
-ENV NODE_ENV=production
-EXPOSE 8080
-
-CMD ["npm", "run", "start"]
+### Docker Compose（開発環境）
+```bash
+# docker-compose での起動
+docker-compose -f infrastructure/docker/docker-compose.yml up -d
 ```
 
 ## 主な機能
-- LINE からのメッセージ受信・応答 (Express + body-parser)
-- Firebase Realtime Database を利用したユーザー情報管理と保存
-- Google Sheets API を利用したメッセージログ記録
-- **LLM 連携による応答生成**:
-  - Cohere Command-R-Plus API を利用した自然な会話応答
-  - Google Gemini API を利用した高度な応答生成とツール連携
-- **外部ツール連携**:
-  - 楽天商品検索API を利用した商品情報の検索
-- ユーザー固有のペルソナ管理（名前、好きな食べ物、最近の話題など）
-- 簡易感情分析
+
+### 🤖 AI 会話システム
+- **関西弁キャラクター**: 穏やかなカメ執事として一貫したペルソナ
+- **現在メッセージ重視**: 過去の発言への言及を避け、今の会話に集中
+- **感情分析**: ユーザーの感情を理解し適切に応答
+- **会話履歴管理**: 直近2メッセージに制限し、長期記憶は要約で保持
+
+### 🛍️ 商品推奨システム
+- **楽天API連携**: ユーザーの感情や趣味に基づく商品提案
+- **Gemini Function Calling**: ツール連携による自然な商品検索
+- **文脈理解**: 会話の流れから適切なタイミングで商品提案
+
+### 👤 ユーザープロファイル管理
+- **名前・好み追跡**: 食べ物、色、音楽、場所の好みを学習
+- **感情状態記録**: 会話中の感情変化を追跡
+- **最近の話題**: ユーザーの関心事を記憶
+
+### 🔧 技術的機能
+- **マイクロサービス対応**: MCP プロトコルでサービス間通信
+- **フォールバック機能**: MCP サービス不可時の自動代替処理
+- **メッセージログ**: Google Sheets への全会話記録
+- **エラーハンドリング**: 堅牢なエラー処理とリトライ機能
 
 ## アプリケーション構成
-- `src/kame_buttler.ts`:
-  - メインエントリーポイント。LINE Messaging APIからのリクエストを処理し、各種ハンドラーを呼び出します。
-  - 環境変数の読み込み、Firebase Admin SDKの初期化、Expressサーバーのセットアップとルーティング定義を行います。
-  - ユーザー情報管理、メッセージログ記録、LLM連携（Cohere/Gemini）、感情分析、楽天API連携などの主要なロジックを実装しています。
-- `test_rakuten_search.ts`:
-  - `kame_buttler.ts`内で定義されている楽天商品検索API連携機能のテストスクリプトです。
-- `user-profile-service/src/index.ts`:
-  - 独立したユーザープロファイルサービスのエントリーポイント。
-  - Firebase Realtime Database を利用してユーザープロファイルの取得と更新を行う RESTful API を提供します。
-- 各種ハンドラー関数:
-  - ユーザー情報管理、メッセージログ記録、LLM連携、感情分析などを実装しています。
+
+### メインアプリケーション (`src/`)
+- **`kame_buttler.ts`**: 
+  - LINE Messaging API との統合とメインロジック
+  - LLM 連携 (Cohere/Gemini) とプロンプト管理
+  - MCP ツール呼び出しとフォールバック処理
+  - ユーザー情報管理と感情分析
+- **`prompts.ts`**: 
+  - カメ執事キャラクターのシステムプロンプト
+  - ユーザー情報プロンプトテンプレート
+  - 応答原則と制約定義
+- **`kame_buttler.test.ts`**: 
+  - 単体テストとモック実装
+  - テスト環境用インメモリストア
+
+### マイクロサービス (`apps/`)
+- **`user-profile-service/`**: 
+  - Firebase Realtime Database 連携
+  - ユーザープロファイル CRUD API
+  - RESTful エンドポイント提供
+- **`rakuten-server/`**: 
+  - 楽天商品検索 API ラッパー
+  - MCP プロトコル対応
+  - 商品データ正規化
+
+### インフラストラクチャ (`infrastructure/`)
+- **`docker/`**: コンテナ化設定
+- **`cloudbuild/`**: GCP Cloud Build パイプライン
+- **`scripts/`**: デプロイメント自動化
+
+## 開発における注意点
+
+### プロンプト設計
+- **現在メッセージ重視**: 過去の発言への言及を避ける
+- **会話履歴制限**: 直近2メッセージのみコンテキストに含める
+- **キャラクター一貫性**: 関西弁と穏やかな執事口調の維持
+
+### マイクロサービス連携
+- **MCP プロトコル**: `callMcpTool()` 関数でサービス間通信
+- **フォールバック**: MCP 不可時は HTTP 直接通信またはモック
+- **エラーハンドリング**: サービス障害時の適切な代替処理
+
+### セキュリティ
+- **認証情報管理**: GCP Secret Manager で一元管理
+- **Base64 エンコーディング**: JSON 認証情報の安全な保存
+- **環境変数分離**: 開発・本番環境の適切な分離
 
 ## 今後の開発方針
-- 会話履歴を活用した文脈理解の強化
-- 外部ツール連携機能の実装 (Function Calling 等)
-- 応答エラーハンドリングの強化
-- ペルソナ維持の改善
-- 感情分析の強化
-- userinfoの更新アルゴリズムの強化
+- **多言語対応**: 関西弁以外の方言・言語サポート
+- **高度な感情分析**: より精密な感情理解とパーソナライゼーション
+- **商品推奨精度向上**: ユーザー行動学習とレコメンドアルゴリズム改善
+- **マルチモーダル対応**: 画像・音声メッセージへの対応
+- **A/B テスト機能**: プロンプト最適化とユーザー体験向上
