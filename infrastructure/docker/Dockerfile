@@ -5,10 +5,11 @@ WORKDIR /app
 
 # 依存関係インストール
 COPY package*.json tsconfig.json ./
+COPY config/ ./config/
 RUN npm install
 
 # ソースコピー & ビルド
-COPY . .
+COPY src/ ./src/
 RUN npm run build 
 
 ENV NODE_ENV=production

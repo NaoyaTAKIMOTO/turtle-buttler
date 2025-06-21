@@ -1,0 +1,64 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: turtle-buttler
+  namespace: turtle-buttler
+spec:
+  template:
+    spec:
+      containers:
+        - image: asia.gcr.io/turtle-buttler/turtle-buttler
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 60
+          env:
+            - name: FIREBASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: FIREBASE_URL
+                  key: latest
+            - name: FIREBASE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: FIREBASE_API_KEY
+                  key: latest
+            - name: SPREADSHEET_ID
+              valueFrom:
+                secretKeyRef:
+                  name: SPREADSHEET_ID
+                  key: latest
+            - name: CO_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: CO_API_KEY
+                  key: latest
+            - name: CHANNEL_ACCESS
+              valueFrom:
+                secretKeyRef:
+                  name: CHANNEL_ACCESS
+                  key: latest
+            - name: CHANNEL_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: CHANNEL_SECRET
+                  key: latest
+            - name: CREDENTIALS_ADMIN
+              valueFrom:
+                secretKeyRef:
+                  name: CREDENTIALS_ADMIN
+                  key: latest
+
+            - name: CREDENTIALS
+              valueFrom:
+                secretKeyRef:
+                  name: CREDENTIALS
+                  key: latest
+                
+            - name: PORT
+              value: "8080"

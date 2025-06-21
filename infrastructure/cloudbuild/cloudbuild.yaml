@@ -33,7 +33,7 @@ availableSecrets:
 steps:
   # Docker イメージをビルド
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/${_SERVICE_NAME}:$BUILD_ID', '.']
+    args: ['build', '-f', 'infrastructure/docker/Dockerfile', '-t', 'gcr.io/$PROJECT_ID/${_SERVICE_NAME}:$BUILD_ID', '.']
   
   # Container Registry にプッシュ
   - name: 'gcr.io/cloud-builders/docker'

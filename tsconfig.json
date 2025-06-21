@@ -1,15 +1,3 @@
 {
-  "compilerOptions": {
-    "target": "es2018",
-    "module": "nodenext",
-    "outDir": "./dist",
-    "esModuleInterop": true,
-    "strict": true,
-    "skipLibCheck": true,
-    "moduleResolution": "nodenext",
-    "isolatedModules": true,
-    "typeRoots": ["./node_modules/@types"]
-  },
-  "include": ["./*.ts", "./*.d.ts"],
-  "exclude": ["node_modules", "mcp-servers", "user-profile-service"]
+  "extends": "./config/tsconfig.json"
 }

@@ -5,7 +5,7 @@ PROJECT_ID=$(gcloud config get-value project)
 REGION="asia-northeast1"
 
 echo "Deploying user-profile-service..."
-gcloud builds submit --config cloudbuild_user_profile.yaml .
+gcloud builds submit --config infrastructure/cloudbuild/cloudbuild_user_profile.yaml .
 
 USER_PROFILE_SERVICE_URL=$(gcloud run services describe user-profile-service \
   --project="${PROJECT_ID}" \
@@ -25,7 +25,7 @@ else
 fi
 
 echo "Deploying rakuten-server..."
-gcloud builds submit --config cloudbuild_rakuten.yaml .
+gcloud builds submit --config infrastructure/cloudbuild/cloudbuild_rakuten.yaml .
 
 RAKUTEN_SERVER_URL=$(gcloud run services describe rakuten-server \
   --project="${PROJECT_ID}" \

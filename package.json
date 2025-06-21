@@ -5,8 +5,9 @@
   "main": "./dist/kame_buttler.js",
   "scripts": {
     "start": "node ./dist/kame_buttler.js",
-    "test": "TS_NODE_FILES=true mocha -r ts-node/register -r dotenv/config './*.test.ts'",
-    "build": "tsc"
+    "test": "TS_NODE_FILES=true mocha -r ts-node/register -r dotenv/config './src/*.test.ts'",
+    "build": "tsc",
+    "build:apps": "cd apps/user-profile-service && npm run build && cd ../rakuten-server && npm run build"
   },
   "author": "takimotonaoya",
   "license": "ISC",
