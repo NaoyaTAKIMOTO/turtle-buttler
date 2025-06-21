@@ -6,3 +6,13 @@ setup:
 deploy:
 	gcloud config set project turtle-buttler
 	gcloud builds submit --config=cloudbuild.yaml .
+
+# MCP server のデプロイ
+deploy-mcp:
+	bash scripts/deploy_mcp_services.sh
+
+# すべてのサービスをデプロイするターゲット
+deploy-all: setup
+	bash scripts/deploy_mcp_services.sh
+	gcloud config set project turtle-buttler
+	gcloud builds submit --config=cloudbuild.yaml .

@@ -5,9 +5,8 @@ import { google } from 'googleapis';
 import fetch from 'node-fetch';
 import {
   analyzeSentiment, getReplyMessage, postCommandR, updateUserName, updateFavoriteFood, updateFavoriteColor, updateFavoriteMusic, updateFavoritePlace,
-  getUserInfoHandler, generateReplyMessage, updateChatHistory, saveUserInfoHandler, saveUserInfo, getUserInfo, replyToLine, createCoherePayload,
-  getCohereResponse, updateUserNameHandler, updateFavoriteFoodHandler, logMessageToSpreadsheet, getLatestMessageByUserId,
-  deleteUserInfo // deleteUserInfo をインポート
+  getUserInfoHandler, generateReplyMessage, updateChatHistory, saveUserInfoHandler, replyToLine, createCoherePayload,
+  getCohereResponse, updateUserNameHandler, updateFavoriteFoodHandler, logMessageToSpreadsheet, getLatestMessageByUserId
 } from './kame_buttler';
 
 
@@ -158,29 +157,6 @@ describe('Firebase Realtime Database and Spreadsheet Integration Tests', functio
     },
   };
 
-  // 各テストの前にユーザー情報を削除してクリーンな状態にする
-  beforeEach(async () => {
-    await deleteUserInfo(userId);
-  });
-
-  // 全てのテストが終わった後にユーザー情報を削除
-  after(async () => {
-    await deleteUserInfo(userId);
-  });
-
-  it('should save and retrieve user info from Firebase', async () => {
-    await saveUserInfo(userId, testUserInfo); // まず保存
-    const retrievedUserInfo = await getUserInfo(userId); // 次に取得
-    // 取得した情報が保存した情報と（部分的に）一致するか確認
-    expect(retrievedUserInfo).to.not.be.null;
-    // Firebaseが空配列を省略する場合があるため、存在するプロパティのみを比較
-    expect(retrievedUserInfo?.userId).to.equal(testUserInfo.userId);
-    expect(retrievedUserInfo?.userName).to.equal(testUserInfo.userName);
-    expect(retrievedUserInfo?.preferences).to.deep.equal(testUserInfo.preferences);
-    // chatHistory と recentTopics は存在しないか空配列であることを確認
-    expect(retrievedUserInfo?.chatHistory || []).to.be.an('array').that.is.empty;
-    expect(retrievedUserInfo?.recentTopics || []).to.be.an('array').that.is.empty;
-  });
 
   it('should log a message to the spreadsheet and retrieve it (requires manual verification or more robust retrieval)', async () => {
     // NODE_ENVを一時的に本番環境扱いにしてスプレッドシートに書き込む
@@ -322,10 +298,10 @@ describe('E2E Test - LINE Webhook to Gemini and Firebase', function() {
     replyToLineCalledWith = null; // 状態をリセット
   });
 
-  // 各テストの前にテストユーザー情報を削除
+  // 各テストの前にテストユーザー情報を削除 (Firebaseの直接操作は削除されたため、MCPツール経由での削除は行わない)
   beforeEach(async () => {
     const userId = 'U1234abcd'; // dummy_line_request.json の userId
-    await deleteUserInfo(userId);
+    // await deleteUserInfo(userId); // Firebaseの直接操作は削除されたため、コメントアウト
     replyToLineCalledWith = null; // 状態をリセット
   });
 
@@ -350,7 +326,7 @@ describe('E2E Test - LINE Webhook to Gemini and Firebase', function() {
 
     // Firebase にユーザー情報が保存されたことを検証
     const userId = 'U1234abcd'; // dummy_line_request.json の userId
-    const userInfo = await getUserInfo(userId);
+    const userInfo = await getUserInfoHandler(userId);
 
     expect(userInfo).to.not.be.null;
     expect(userInfo?.userId).to.equal(userId);

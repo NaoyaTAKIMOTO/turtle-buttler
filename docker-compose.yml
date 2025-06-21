@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  user-profile-service:
+    build:
+      context: ./user-profile-service
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    env_file:
+      - ./.env
+    restart: always
+
+  rakuten-server:
+    build:
+      context: ./mcp-servers/rakuten-server
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8080"
+    env_file:
+      - ./.env
+    restart: always
+
+  kame-buttler:
+    build:
+      context: .
+      dockerfile: Dockerfile.kame-buttler
+    ports:
+      - "8082:8080"
+    env_file:
+      - ./.env
+    restart: always

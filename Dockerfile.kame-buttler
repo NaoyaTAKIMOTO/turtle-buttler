@@ -1,0 +1,21 @@
+# Use the official Node.js 18 image.
+FROM node:18-slim
+
+# Create and change to the app directory.
+WORKDIR /app
+
+# Copy application dependency manifests to the container image.
+COPY package*.json ./
+
+# Install production dependencies.
+RUN npm install
+
+# Copy the rest of the application code.
+COPY . .
+
+# Build the TypeScript application
+RUN npm run build
+
+# Run the web service on the container's port 8080.
+EXPOSE 8080
+CMD ["node", "dist/kame_buttler.js"]

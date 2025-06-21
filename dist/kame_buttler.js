@@ -1,44 +1,11 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.FIREBASE_URL = void 0;
 exports.doPost = doPost;
 exports.handleLineRequest = handleLineRequest;
+exports.summarizeChatHistory = summarizeChatHistory;
 exports.handleNonLineRequest = handleNonLineRequest;
 exports.logMessageToSpreadsheet = logMessageToSpreadsheet;
 exports.getLatestMessageByUserId = getLatestMessageByUserId;
@@ -63,34 +30,87 @@ exports.updateChatHistory = updateChatHistory;
 exports.saveUserInfoHandler = saveUserInfoHandler;
 exports.analyzeUserSentiment = analyzeUserSentiment;
 exports.replyToLine = replyToLine;
-exports.saveUserInfo = saveUserInfo;
-exports.getUserInfo = getUserInfo;
-exports.deleteUserInfo = deleteUserInfo;
 exports.analyzeSentiment = analyzeSentiment;
 const express_1 = __importDefault(require("express"));
 const body_parser_1 = __importDefault(require("body-parser"));
 const googleapis_1 = require("googleapis");
 const node_fetch_1 = __importDefault(require("node-fetch"));
-const admin = __importStar(require("firebase-admin"));
+// Firebase Admin SDKの直接的なインポートと初期化を削除
+// import * as admin from 'firebase-admin';
 require('dotenv').config();
-// Firebase Admin SDKの初期化
-const rawAdmin = process.env.CREDENTIALS_ADMIN;
-if (!rawAdmin)
-    throw new Error('CREDENTIALS_ADMIN が未設定です');
-const decodedAdmin = Buffer.from(rawAdmin, 'base64').toString('utf-8');
-let serviceAccount;
-try {
-    serviceAccount = JSON.parse(decodedAdmin);
+// MCPツール用のフォールバック実装（テスト環境および未実装時）
+async function use_mcp_tool_fallback(server_name, tool_name, args) {
+    if (process.env.NODE_ENV === 'test') {
+        // テスト環境では適切なモックデータを返す
+        if (server_name === 'user-profile-server' && tool_name === 'get_user_profile') {
+            const userId = args.userId;
+            return JSON.stringify(testUserInfoStore.get(userId) || {
+                userId,
+                userName: "",
+                chatHistory: [],
+                recentTopics: [],
+                preferences: {
+                    favoriteFood: "お好み焼き",
+                    language: "関西弁",
+                    favoriteColor: "",
+                    favoriteMusic: "",
+                    favoritePlace: ""
+                },
+                sentiment: "普通"
+            });
+        }
+        if (server_name === 'user-profile-server' && tool_name === 'update_user_profile') {
+            testUserInfoStore.set(args.userId, args.userInfo);
+            return 'success';
+        }
+        if (server_name === 'rakuten-server' && tool_name === 'search_rakuten_items') {
+            return JSON.stringify([
+                {
+                    name: "テスト商品",
+                    price: "1000円",
+                    url: "https://example.com/product"
+                }
+            ]);
+        }
+    }
+    // 本番環境でMCPツールが利用できない場合は、直接HTTPリクエストを送信
+    if (server_name === 'user-profile-server') {
+        const serviceUrl = process.env.USER_PROFILE_SERVICE_URL;
+        if (serviceUrl) {
+            const response = await (0, node_fetch_1.default)(`${serviceUrl}/${tool_name}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(arguments)
+            });
+            return await response.text();
+        }
+    }
+    if (server_name === 'rakuten-server') {
+        const serviceUrl = process.env.RAKUTEN_SERVER_URL;
+        if (serviceUrl) {
+            const response = await (0, node_fetch_1.default)(`${serviceUrl}/${tool_name}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(arguments)
+            });
+            return await response.text();
+        }
+    }
+    throw new Error(`MCP tool ${server_name}:${tool_name} not available`);
 }
-catch (err) {
-    console.error('CREDENTIALS_ADMIN のデコード結果:', decodedAdmin);
-    throw err;
+// MCPツールが利用可能かチェックして適切な関数を使用
+async function callMcpTool(server_name, tool_name, args) {
+    try {
+        // グローバルのuse_mcp_tool関数が利用可能な場合は使用
+        if (typeof use_mcp_tool !== 'undefined') {
+            return await use_mcp_tool(server_name, tool_name, args);
+        }
+    }
+    catch (error) {
+        // use_mcp_toolが未定義の場合はフォールバックを使用
+    }
+    return await use_mcp_tool_fallback(server_name, tool_name, args);
 }
-admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-    databaseURL: process.env.FIREBASE_URL,
-});
-const db = admin.database();
 // テスト環境用のストア
 const testUserInfoStore = new Map();
 const testMessageStore = new Map();
@@ -164,45 +184,121 @@ async function enableAppsScriptAPI() {
  * @param {object} body - リクエストボディ。POSTリクエストの情報を含みます。
  */
 async function handleLineRequest(body) {
-    const eventData = body.events[0];
-    console.log(eventData);
-    //取得したデータから、応答用のトークンを取得
-    const replyToken = eventData.replyToken;
-    //取得したデータから、メッセージ種別を取得
-    const messageType = eventData.message.type;
-    //取得したデータから、ユーザーが投稿したメッセージを取得
-    const userMessage = eventData.message.text;
-    const userId = eventData.source.userId;
-    // ユーザー名更新
-    await updateUserNameHandler(userMessage, userId, replyToken);
-    // 好きな食べ物更新
-    await updateFavoriteFoodHandler(userMessage, userId, replyToken);
-    // メッセージをスプレッドシートに記録
-    await logMessageToSpreadsheet(userMessage, userId);
-    // ユーザー情報を取得または初期化
-    const userInfo = await getUserInfoHandler(userId);
-    // 最近の話題を更新
-    userInfo.recentTopics.push(userMessage);
-    // recentTopicsの要素数が5を超えた場合は、古い要素を削除
-    if (userInfo.recentTopics.length > 5) {
-        userInfo.recentTopics.shift();
+    for (const eventData of body.events) { // 変更: events 配列をループ処理
+        console.log(eventData);
+        // 取得したデータから、応答用のトークンを取得
+        const replyToken = eventData.replyToken;
+        // 取得したデータから、メッセージ種別を取得 (現状はtextメッセージのみを想定しているため、必要に応じて分岐)
+        // const messageType: string = eventData.message.type; 
+        if (eventData.message.type !== 'text') {
+            console.log(`Unsupported message type: ${eventData.message.type}. Skipping.`);
+            continue; // テキストメッセージ以外はスキップ (またはエラー応答)
+        }
+        // 取得したデータから、ユーザーが投稿したメッセージを取得
+        const userMessage = eventData.message.text;
+        const userId = eventData.source.userId;
+        // ユーザー名更新 (応答が必要な場合は replyToken を使う)
+        // 注意: updateUserNameHandler は内部で replyToLine を呼ぶため、
+        // このループ内で複数回呼ばれると、複数の応答が送信される可能性がある。
+        // 設計によっては、これらのハンドラからの直接応答を抑制し、
+        // generateReplyMessage で集約的な応答を生成する方が良い場合もある。
+        // 現状はそのままにしておくが、挙動に注意。
+        const userNameUpdated = await updateUserNameHandler(userMessage, userId, replyToken);
+        if (userNameUpdated) {
+            // 名前更新が成功し、応答が送信された場合は、このイベントの処理を終了する（二重応答を避ける）
+            // ただし、他の情報（好きな食べ物など）も同時に更新したい場合は、この continue は不適切。
+            // ここでは、名前更新がメインの目的だったと仮定し、continue するか、
+            // あるいは updateUserNameHandler が応答を返さないように変更する必要がある。
+            // 一旦、continue せずに進める。
+        }
+        // 好きな食べ物更新 (同様に replyToken を使う)
+        const favoriteFoodUpdated = await updateFavoriteFoodHandler(userMessage, userId, replyToken);
+        if (favoriteFoodUpdated) {
+            // こちらも同様の注意点あり
+        }
+        // メッセージをスプレッドシートに記録
+        await logMessageToSpreadsheet(userMessage, userId);
+        // ユーザー情報を取得または初期化
+        const userInfo = await getUserInfoHandler(userId);
+        // 最近の話題を更新
+        userInfo.recentTopics.push(userMessage);
+        // recentTopicsの要素数が5を超えた場合は、古い要素を削除
+        if (userInfo.recentTopics.length > 5) {
+            userInfo.recentTopics.shift();
+        }
+        // 応答メッセージを生成
+        // updateUserNameHandler や updateFavoriteFoodHandler が既に応答している場合、
+        // ここでの応答は不要かもしれない。設計の見直しが必要なポイント。
+        // ここでは、それらのハンドラが応答しなかった場合にのみ、汎用的な応答を生成すると仮定する。
+        let replyMessage = "";
+        if (!userNameUpdated && !favoriteFoodUpdated) {
+            replyMessage = await generateReplyMessage(userMessage, userId, userInfo);
+        }
+        else if (userNameUpdated && favoriteFoodUpdated) {
+            // 両方更新された場合のメッセージ (例: 「お名前と好きな食べ物を覚えました！」) を別途用意するか、
+            // 最後の更新処理の応答を優先する。ここでは何もしないでおく。
+            // もし両方更新された場合、2回応答が飛んでいる可能性がある。
+        }
+        else {
+            // どちらか一方が更新された場合は、その応答が既に飛んでいるはず。
+        }
+        if (replyMessage) { // generateReplyMessage で応答が生成された場合のみ
+            console.log('Reply message:', replyMessage);
+            // メッセージをスプレッドシートに記録
+            await logMessageToSpreadsheet("Bot: " + replyMessage, userId);
+            // 会話履歴を更新
+            updateChatHistory(userInfo, userMessage, replyMessage);
+            // 会話履歴が10件ごとに要約を生成
+            if (userInfo.chatHistory.length % 10 === 0) {
+                console.log('Summarizing chat history...');
+                userInfo.chatSummary = await summarizeChatHistory(userInfo.chatHistory);
+                userInfo.chatHistory = []; // 要約後、履歴をクリア
+                console.log('Chat summary updated:', userInfo.chatSummary);
+            }
+            // テスト環境では返信をスキップ
+            if (process.env.NODE_ENV !== 'test') {
+                await replyToLine(replyToken, replyMessage);
+            }
+        }
+        // ユーザー情報は常に保存
+        saveUserInfoHandler(userId, userInfo);
+        console.log('DB:', userInfo);
+        // 感情分析 (応答メッセージとは独立して実行)
+        analyzeUserSentiment(userInfo, userMessage);
     }
-    // 応答メッセージを生成
-    let replyMessage;
-    replyMessage = await generateReplyMessage(userMessage, userId, userInfo);
-    console.log('Reply message:', replyMessage);
-    // メッセージをスプレッドシートに記録
-    await logMessageToSpreadsheet("Bot: " + replyMessage, userId);
-    // 会話履歴を更新
-    updateChatHistory(userInfo, userMessage, replyMessage);
-    // ユーザー情報を保存
-    saveUserInfoHandler(userId, userInfo);
-    console.log('DB:', userInfo);
-    // 感情分析
-    analyzeUserSentiment(userInfo, userMessage);
-    // テスト環境では返信をスキップ
-    if (process.env.NODE_ENV !== 'test') {
-        await replyToLine(replyToken, replyMessage);
+}
+/**
+ * summarizeChatHistory関数：会話履歴を要約します。
+ * @param {any[]} chatHistory - 会話履歴。
+ * @return {string} - 要約された会話内容。
+ */
+async function summarizeChatHistory(chatHistory) {
+    const messages = chatHistory.flatMap(chat => [
+        { "role": "user", "content": chat.message },
+        { "role": "assistant", "content": chat.response }
+    ]);
+    const payload = JSON.stringify({
+        "contents": [
+            { "role": "user", "parts": [{ "text": "以下の会話履歴を簡潔に要約してください。" }] },
+            { "role": "model", "parts": [{ "text": "承知いたしました。" }] },
+            ...messages.map(msg => ({ "role": msg.role, "parts": [{ "text": msg.content }] }))
+        ]
+    });
+    try {
+        const response = await getGeminiResponse(payload); // Geminiで要約
+        return response;
+    }
+    catch (err) {
+        console.error('Geminiでの要約失敗, Cohereにフォールバック:', err);
+        const coherePayload = JSON.stringify({
+            "model": "command-r-plus",
+            "messages": [
+                { "role": "system", "content": "以下の会話履歴を簡潔に要約してください。" },
+                ...messages
+            ]
+        });
+        const response = await getCohereResponse(coherePayload); // Cohereで要約
+        return response;
     }
 }
 /**
@@ -370,10 +466,11 @@ function createCoherePayload(message, userInfo) {
     const favoriteFood = userInfo.preferences && userInfo.preferences.favoriteFood || "お好み焼き";
     // 最近の話題を取得
     const recentTopics = userInfo.recentTopics || [];
-    // 会話履歴を取得
+    // 会話履歴を取得（文脈理解のため、直近2メッセージのみに制限）
     const chatHistory = userInfo.chatHistory || [];
-    // 会話履歴をLLMへの入力形式に変換
-    const messages = chatHistory.flatMap(chat => [
+    // 会話履歴から直近2メッセージのみ抽出してLLMへの入力形式に変換
+    const recentChatHistory = chatHistory.slice(-2); // 直近2メッセージのみ抽出
+    const messages = recentChatHistory.flatMap(chat => [
         { "role": "user", "content": chat.message },
         { "role": "assistant", "content": chat.response }
     ]);
@@ -385,7 +482,8 @@ function createCoherePayload(message, userInfo) {
         .replace('${favoriteFood}', favoriteFood)
         .replace('${recentTopics}', recentTopics.join("、"))
         .replace('${sentiment}', userInfo.sentiment || "普通");
-    const sys_prompt = prompts_1.BASE_SYSTEM_PROMPT + userInfoPrompt;
+    const chatSummary = userInfo.chatSummary || "なし"; // 会話要約を取得。ない場合は「なし」とする
+    const sys_prompt = prompts_1.BASE_SYSTEM_PROMPT + userInfoPrompt + `\n\nこれまでの会話の要約:\n${chatSummary}\n\n【重要】直近のユーザーメッセージに対してのみ応答し、過去の発言への言及は避けてください。`;
     const payload = JSON.stringify({
         "model": "command-r-plus",
         "messages": [
@@ -463,10 +561,11 @@ function createGeminiPayload(message, userInfo) {
     const favoriteFood = userInfo.preferences && userInfo.preferences.favoriteFood || "お好み焼き";
     // 最近の話題を取得
     const recentTopics = userInfo.recentTopics || [];
-    // 会話履歴を取得
+    // 会話履歴を取得（文脈理解のため、直近2メッセージのみに制限）
     const chatHistory = userInfo.chatHistory || [];
-    // 会話履歴をLLMへの入力形式に変換
-    const history = chatHistory.flatMap(chat => [
+    // 会話履歴から直近2メッセージのみ抽出してLLMへの入力形式に変換
+    const recentChatHistory = chatHistory.slice(-2); // 直近2メッセージのみ抽出
+    const history = recentChatHistory.flatMap(chat => [
         { "role": "user", "parts": [{ "text": chat.message }] },
         { "role": "model", "parts": [{ "text": chat.response }] }
     ]);
@@ -476,7 +575,8 @@ function createGeminiPayload(message, userInfo) {
         .replace('${favoriteFood}', favoriteFood)
         .replace('${recentTopics}', recentTopics.join("、"))
         .replace('${sentiment}', userInfo.sentiment || "普通");
-    const sys_prompt = prompts_1.BASE_SYSTEM_PROMPT + userInfoPrompt;
+    const chatSummary = userInfo.chatSummary || "なし"; // 会話要約を取得。ない場合は「なし」とする
+    const sys_prompt = prompts_1.BASE_SYSTEM_PROMPT + userInfoPrompt + `\n\nこれまでの会話の要約:\n${chatSummary}\n\n【重要】直近のユーザーメッセージに対してのみ応答し、過去の発言への言及は避けてください。`;
     const contents = [
         { "role": "user", "parts": [{ "text": sys_prompt }] },
         { "role": "model", "parts": [{ "text": "承知いたしました。どのようなご用件でしょうか？" }] }, // システムプロンプトへの応答例
@@ -489,17 +589,23 @@ function createGeminiPayload(message, userInfo) {
             {
                 "function_declarations": [
                     {
-                        "name": "searchAmazonProducts",
-                        "description": "Search for products on Amazon using keywords and return the product title and URL.",
+                        "name": "search_rakuten_items",
+                        "description": "楽天で商品を検索し、商品リンクを取得します。",
                         "parameters": {
                             "type": "object",
                             "properties": {
-                                "query": {
+                                "keyword": {
                                     "type": "string",
-                                    "description": "The keywords or product name to search for on Amazon."
+                                    "description": "検索キーワード"
+                                },
+                                "hits": {
+                                    "type": "number",
+                                    "description": "取得する商品の数（最大30）",
+                                    "minimum": 1,
+                                    "maximum": 30
                                 }
                             },
-                            "required": ["query"]
+                            "required": ["keyword"]
                         }
                     }
                 ]
@@ -542,37 +648,37 @@ async function getGeminiResponse(payload) {
                 if (part.function_call) {
                     const functionCall = part.function_call;
                     console.log('Gemini Function Call:', functionCall);
-                    // Handle searchAmazonProducts function call
-                    if (functionCall.name === 'searchAmazonProducts') {
+                    // Handle search_rakuten_items function call
+                    if (functionCall.name === 'search_rakuten_items') {
                         const args = functionCall.args;
-                        if (args && typeof args.query === 'string') {
+                        if (args && typeof args.keyword === 'string') {
                             try {
-                                const products = await searchAmazonProducts(args.query);
+                                const products = await callMcpTool('rakuten-server', 'search_rakuten_items', { keyword: args.keyword, hits: args.hits });
                                 // Return the function result to Gemini
                                 return JSON.stringify({
                                     tool_code: {
-                                        name: 'searchAmazonProducts',
+                                        name: 'search_rakuten_items',
                                         result: JSON.stringify(products),
                                     },
                                 });
                             }
                             catch (error) {
-                                console.error('Error executing searchAmazonProducts:', error);
+                                console.error('Error executing search_rakuten_items:', error);
                                 // Return an error result to Gemini
                                 return JSON.stringify({
                                     tool_code: {
-                                        name: 'searchAmazonProducts',
+                                        name: 'search_rakuten_items',
                                         error: error instanceof Error ? error.message : 'An unknown error occurred.',
                                     },
                                 });
                             }
                         }
                         else {
-                            console.error('Invalid arguments for searchAmazonProducts:', args);
+                            console.error('Invalid arguments for search_rakuten_items:', args);
                             // Return an error for invalid arguments
                             return JSON.stringify({
                                 tool_code: {
-                                    name: 'searchAmazonProducts',
+                                    name: 'search_rakuten_items',
                                     error: 'Invalid arguments provided.',
                                 },
                             });
@@ -620,7 +726,7 @@ async function updateUserName(message, userId) {
     if (message.startsWith("名前は")) {
         const newName = message.substring(3).trim();
         userInfo.userName = newName;
-        saveUserInfo(userId, userInfo);
+        await saveUserInfoHandler(userId, userInfo); // saveUserInfoHandlerを呼び出すように変更
         return newName + "やね！これからよろしくやで！";
     }
     return null;
@@ -640,7 +746,7 @@ async function updateFavoriteFood(message, userId) {
         if (process.env.NODE_ENV !== "test") {
             userInfo = await getUserInfoHandler(userId);
             userInfo.preferences.favoriteFood = newFood;
-            await saveUserInfo(userId, userInfo);
+            await saveUserInfoHandler(userId, userInfo); // saveUserInfoHandlerを呼び出すように変更
         }
         return `${newFood}か！ええやん！`;
     }
@@ -661,7 +767,7 @@ async function updateFavoriteColor(message, userId) {
         if (process.env.NODE_ENV !== "test") {
             userInfo = await getUserInfoHandler(userId);
             userInfo.preferences.favoriteColor = newColor;
-            await saveUserInfo(userId, userInfo);
+            await saveUserInfoHandler(userId, userInfo); // saveUserInfoHandlerを呼び出すように変更
         }
         return `${newColor}か！素敵な色やね！`;
     }
@@ -674,7 +780,7 @@ async function updateFavoriteMusic(message, userId) {
         if (process.env.NODE_ENV !== "test") {
             userInfo = await getUserInfoHandler(userId);
             userInfo.preferences.favoriteMusic = newMusic;
-            await saveUserInfo(userId, userInfo);
+            await saveUserInfoHandler(userId, userInfo); // saveUserInfoHandlerを呼び出すように変更
         }
         return `${newMusic}か！ええ趣味やね！`;
     }
@@ -687,7 +793,7 @@ async function updateFavoritePlace(message, userId) {
         if (process.env.NODE_ENV !== "test") {
             userInfo = await getUserInfoHandler(userId);
             userInfo.preferences.favoritePlace = newPlace;
-            await saveUserInfo(userId, userInfo);
+            await saveUserInfoHandler(userId, userInfo); // saveUserInfoHandlerを呼び出すように変更
         }
         return `${newPlace}か！行ってみたいなぁ！`;
     }
@@ -711,22 +817,43 @@ async function getUserInfoHandler(userId) {
             sentiment: "普通"
         };
     }
-    // 本番環境では Firebase から取得
-    const stored = await getUserInfo(userId);
-    return stored || {
-        userId,
-        userName: "",
-        chatHistory: [],
-        recentTopics: [],
-        preferences: {
-            favoriteFood: "お好み焼き",
-            language: "関西弁",
-            favoriteColor: "",
-            favoriteMusic: "",
-            favoritePlace: ""
-        },
-        sentiment: "普通"
-    };
+    // 本番環境では MCP ツールから取得
+    try {
+        const result = await callMcpTool('user-profile-server', 'get_user_profile', { userId });
+        const userInfo = JSON.parse(result); // MCPツールからの結果はJSON文字列として返される
+        return userInfo || {
+            userId,
+            userName: "",
+            chatHistory: [],
+            recentTopics: [],
+            preferences: {
+                favoriteFood: "お好み焼き",
+                language: "関西弁",
+                favoriteColor: "",
+                favoriteMusic: "",
+                favoritePlace: ""
+            },
+            sentiment: "普通"
+        };
+    }
+    catch (error) {
+        console.error('Error calling get_user_profile MCP tool:', error);
+        // エラー発生時はデフォルト値を返すか、適切なエラーハンドリングを行う
+        return {
+            userId,
+            userName: "",
+            chatHistory: [],
+            recentTopics: [],
+            preferences: {
+                favoriteFood: "お好み焼き",
+                language: "関西弁",
+                favoriteColor: "",
+                favoriteMusic: "",
+                favoritePlace: ""
+            },
+            sentiment: "普通"
+        };
+    }
 }
 async function generateReplyMessage(userMessage, userId, userInfo) {
     try {
@@ -744,8 +871,20 @@ function updateChatHistory(userInfo, userMessage, replyMessage) {
         "response": replyMessage
     });
 }
-function saveUserInfoHandler(userId, userInfo) {
-    saveUserInfo(userId, userInfo);
+async function saveUserInfoHandler(userId, userInfo) {
+    // テスト環境ではストアに保存
+    if (process.env.NODE_ENV === "test") {
+        testUserInfoStore.set(userId, userInfo);
+        return;
+    }
+    // 本番環境では MCP ツールで保存
+    try {
+        await callMcpTool('user-profile-server', 'update_user_profile', { userId, profileData: userInfo });
+        console.log(`User info saved for ${userId} via MCP tool.`);
+    }
+    catch (error) {
+        console.error('Error calling update_user_profile MCP tool:', error);
+    }
 }
 function analyzeUserSentiment(userInfo, message) {
     const userSentiment = analyzeSentiment(message);
@@ -774,44 +913,40 @@ async function replyToLine(replyToken, message) {
     const response = await (0, node_fetch_1.default)(url, options);
     console.log(response);
 }
-// Firebase Realtime DatabaseのURL
-exports.FIREBASE_URL = process.env.FIREBASE_URL;
-async function saveUserInfo(userId, userInfo) {
-    try {
-        const userRef = db.ref("users/" + userId);
-        await userRef.set(userInfo);
-        console.log(`User info saved for ${userId}`);
-    }
-    catch (err) {
-        console.error('ユーザー情報の保存エラー:', err);
-    }
-}
-async function getUserInfo(userId) {
-    try {
-        const userRef = db.ref("users/" + userId);
-        const snapshot = await userRef.once("value");
-        if (snapshot.exists()) {
-            return snapshot.val();
-        }
-        else {
-            return null;
-        }
-    }
-    catch (err) {
-        console.error('ユーザー情報の取得エラー:', err);
-        return null;
-    }
-}
-async function deleteUserInfo(userId) {
-    try {
-        const userRef = db.ref("users/" + userId);
-        await userRef.remove();
-        console.log(`Deleted user info for ${userId}`);
-    }
-    catch (err) {
-        console.error('ユーザー情報の削除エラー:', err);
-    }
-}
+// Firebase Realtime Databaseの直接的な操作関数を削除
+// export const FIREBASE_URL = process.env.FIREBASE_URL;
+// export async function saveUserInfo(userId: string, userInfo: UserInfo): Promise<void> {
+//   try {
+//     const userRef = db.ref("users/" + userId);
+//     await userRef.set(userInfo);
+//     console.log(`User info saved for ${userId}`);
+//   } catch (err) {
+//     console.error('ユーザー情報の保存エラー:', err);
+//   }
+// }
+// export async function getUserInfo(userId: string): Promise<UserInfo | null> {
+//   try {
+//     const userRef = db.ref("users/" + userId);
+//     const snapshot = await userRef.once("value");
+//     if (snapshot.exists()) {
+//       return snapshot.val() as UserInfo;
+//     } else {
+//       return null;
+//     }
+//   } catch (err) {
+//     console.error('ユーザー情報の取得エラー:', err);
+//     return null;
+//   }
+// }
+// export async function deleteUserInfo(userId: string): Promise<void> {
+//   try {
+//     const userRef = db.ref("users/" + userId);
+//     await userRef.remove();
+//     console.log(`Deleted user info for ${userId}`);
+//   } catch (err) {
+//     console.error('ユーザー情報の削除エラー:', err);
+//   }
+// }
 // 感情分析を行う関数
 function analyzeSentiment(message) {
     // 簡単なキーワードマッチングで感情を分析
@@ -831,43 +966,6 @@ function analyzeSentiment(message) {
 const server = app.listen(port, "0.0.0.0", () => {
     console.log(`Kame Butler listening on port ${port}`);
 });
-const dotenv_1 = __importDefault(require("dotenv"));
-const amazon_paapi_1 = require("amazon-paapi");
-dotenv_1.default.config();
-const paapiClient = new amazon_paapi_1.ProductAdvertisingAPIClient({
-    accessKey: process.env.PAAPI_ACCESS_KEY_ID || '',
-    secretKey: process.env.PAAPI_SECRET_ACCESS_KEY || '',
-    partnerTag: process.env.PAAPI_ASSOCIATE_TAG || '', // Use Associate Tag as partnerTag
-    host: 'webservices.amazon.co.jp', // Or the appropriate host for your region
-    region: 'jp' // Or the appropriate region for your locale
-});
-async function searchAmazonProducts(query) {
-    try {
-        const searchResponse = await paapiClient.searchItems({
-            Keywords: query,
-            SearchIndex: 'All', // Or a specific index like 'Books', 'Electronics', etc.
-            ItemCount: 5, // Number of results to return
-            Resources: ['Item.Info.Title', 'Item.Info.Urls'], // Requesting Title and URLs
-        });
-        console.log('PAAPI Search Response:', JSON.stringify(searchResponse, null, 2));
-        const products = [];
-        if (searchResponse.SearchResult && searchResponse.SearchResult.Items) {
-            for (const item of searchResponse.SearchResult.Items) {
-                if (item.ItemInfo && item.ItemInfo.Title && item.ItemInfo.Urls && item.ItemInfo.Urls.Detail) {
-                    products.push({
-                        Title: item.ItemInfo.Title.DisplayValue,
-                        URL: item.ItemInfo.Urls.Detail.toString(),
-                    });
-                }
-            }
-        }
-        return products;
-    }
-    catch (error) {
-        console.error('Error searching Amazon products:', error);
-        return [];
-    }
-}
 process.on('SIGTERM', () => {
     console.log('SIGTERM signal received: closing HTTP server');
     server.close(() => {

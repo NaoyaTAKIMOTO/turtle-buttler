@@ -132,27 +132,6 @@ describe('Firebase Realtime Database and Spreadsheet Integration Tests', functio
             language: 'English',
         },
     };
-    // 各テストの前にユーザー情報を削除してクリーンな状態にする
-    beforeEach(async () => {
-        await (0, kame_buttler_2.deleteUserInfo)(userId);
-    });
-    // 全てのテストが終わった後にユーザー情報を削除
-    after(async () => {
-        await (0, kame_buttler_2.deleteUserInfo)(userId);
-    });
-    it('should save and retrieve user info from Firebase', async () => {
-        await (0, kame_buttler_2.saveUserInfo)(userId, testUserInfo); // まず保存
-        const retrievedUserInfo = await (0, kame_buttler_2.getUserInfo)(userId); // 次に取得
-        // 取得した情報が保存した情報と（部分的に）一致するか確認
-        (0, chai_1.expect)(retrievedUserInfo).to.not.be.null;
-        // Firebaseが空配列を省略する場合があるため、存在するプロパティのみを比較
-        (0, chai_1.expect)(retrievedUserInfo === null || retrievedUserInfo === void 0 ? void 0 : retrievedUserInfo.userId).to.equal(testUserInfo.userId);
-        (0, chai_1.expect)(retrievedUserInfo === null || retrievedUserInfo === void 0 ? void 0 : retrievedUserInfo.userName).to.equal(testUserInfo.userName);
-        (0, chai_1.expect)(retrievedUserInfo === null || retrievedUserInfo === void 0 ? void 0 : retrievedUserInfo.preferences).to.deep.equal(testUserInfo.preferences);
-        // chatHistory と recentTopics は存在しないか空配列であることを確認
-        (0, chai_1.expect)((retrievedUserInfo === null || retrievedUserInfo === void 0 ? void 0 : retrievedUserInfo.chatHistory) || []).to.be.an('array').that.is.empty;
-        (0, chai_1.expect)((retrievedUserInfo === null || retrievedUserInfo === void 0 ? void 0 : retrievedUserInfo.recentTopics) || []).to.be.an('array').that.is.empty;
-    });
     it('should log a message to the spreadsheet and retrieve it (requires manual verification or more robust retrieval)', async () => {
         // NODE_ENVを一時的に本番環境扱いにしてスプレッドシートに書き込む
         const originalEnv = process.env.NODE_ENV;
@@ -200,7 +179,10 @@ describe('doPost - LINE Request Handling', () => {
     let originalGenerateReplyMessage;
     let originalReplyToLine;
     let originalGetUserInfoHandler;
+    let originalNodeEnv;
     before(() => {
+        originalNodeEnv = process.env.NODE_ENV; // 元のNODE_ENVを保存
+        process.env.NODE_ENV = 'test'; // NODE_ENVを'test'に設定
         // オリジナル関数を保存し、モック関数に置き換え
         originalGenerateReplyMessage = require('./kame_buttler').generateReplyMessage;
         require('./kame_buttler').generateReplyMessage = mockGenerateReplyMessage;
@@ -214,6 +196,7 @@ describe('doPost - LINE Request Handling', () => {
         require('./kame_buttler').generateReplyMessage = originalGenerateReplyMessage;
         require('./kame_buttler').replyToLine = originalReplyToLine;
         require('./kame_buttler').getUserInfoHandler = originalGetUserInfoHandler;
+        process.env.NODE_ENV = originalNodeEnv; // NODE_ENVを元に戻す
     });
     it('should process a LINE message event and reply', async () => {
         const dummyLineRequest = {
@@ -264,14 +247,14 @@ describe('E2E Test - LINE Webhook to Gemini and Firebase', function () {
         require('./kame_buttler').replyToLine = originalReplyToLine;
         replyToLineCalledWith = null; // 状態をリセット
     });
-    // 各テストの前にテストユーザー情報を削除
+    // 各テストの前にテストユーザー情報を削除 (Firebaseの直接操作は削除されたため、MCPツール経由での削除は行わない)
     beforeEach(async () => {
         const userId = 'U1234abcd'; // dummy_line_request.json の userId
-        await (0, kame_buttler_2.deleteUserInfo)(userId);
+        // await deleteUserInfo(userId); // Firebaseの直接操作は削除されたため、コメントアウト
         replyToLineCalledWith = null; // 状態をリセット
     });
     it('should process a LINE message, call Gemini, save to Firebase, and attempt to reply to LINE', async () => {
-        const dummyLineRequest = require('../dummy_line_request.json'); // dummy_line_request.json を読み込み
+        const dummyLineRequest = require('./dummy_line_request.json'); // 変更: パスを修正
         // Supertest を使用して doPost 関数をテスト
         const response = await (0, supertest_1.default)(kame_buttler_1.default)
             .post('/')
@@ -287,7 +270,7 @@ describe('E2E Test - LINE Webhook to Gemini and Firebase', function () {
         (0, chai_1.expect)(replyToLineCalledWith === null || replyToLineCalledWith === void 0 ? void 0 : replyToLineCalledWith.message).to.not.be.empty; // 空文字列でないことを確認
         // Firebase にユーザー情報が保存されたことを検証
         const userId = 'U1234abcd'; // dummy_line_request.json の userId
-        const userInfo = await (0, kame_buttler_2.getUserInfo)(userId);
+        const userInfo = await (0, kame_buttler_2.getUserInfoHandler)(userId);
         (0, chai_1.expect)(userInfo).to.not.be.null;
         (0, chai_1.expect)(userInfo === null || userInfo === void 0 ? void 0 : userInfo.userId).to.equal(userId);
         // chatHistory にメッセージが追加されたことを確認 (ユーザーメッセージとボットの応答)

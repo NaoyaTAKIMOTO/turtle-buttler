@@ -33,6 +33,10 @@ secret_names=(
   CHANNEL_ACCESS
   CHANNEL_SECRET
   CREDENTIALS_ADMIN
+  CREDENTIALS
+  GEMINI_API_KEY
+  RAKUTEN_APPLICATION_ID
+  RAKUTEN_AFFILIATE_ID
 )
 
 secret_values=(
@@ -43,6 +47,10 @@ secret_values=(
   "$CHANNEL_ACCESS"
   "$CHANNEL_SECRET"
   "$CREDENTIALS_ADMIN"
+  "$CREDENTIALS"
+  "$GEMINI_API_KEY"
+  "$RAKUTEN_APPLICATION_ID"
+  "$RAKUTEN_AFFILIATE_ID"
 )
 
 for idx in "${!secret_names[@]}"; do
@@ -60,6 +68,11 @@ for idx in "${!secret_names[@]}"; do
   echo "Granting Secret Accessor to Cloud Build SA on: $name"
   gcloud secrets add-iam-policy-binding "$name" \
     --member="serviceAccount:${CLOUD_BUILD_SA_EMAIL}" \
+    --role="roles/secretmanager.secretAccessor"
+  
+  # Compute Engine のデフォルトサービスアカウントにも権限を付与
+  gcloud secrets add-iam-policy-binding "$name" \
+    --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
     --role="roles/secretmanager.secretAccessor"
 done
 

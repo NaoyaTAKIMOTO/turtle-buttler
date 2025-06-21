@@ -1,3 +1,7 @@
+substitutions:
+  _SERVICE_NAME: turtle-buttler
+  _REGION: asia-northeast1
+
 availableSecrets:
   secretManager:
     - versionName: projects/$PROJECT_ID/secrets/FIREBASE_URL/versions/latest
@@ -16,13 +20,25 @@ availableSecrets:
       env: CREDENTIALS_ADMIN
     - versionName: projects/$PROJECT_ID/secrets/CREDENTIALS/versions/latest
       env: CREDENTIALS
+    - versionName: projects/$PROJECT_ID/secrets/USER_PROFILE_SERVICE_URL/versions/latest
+      env: USER_PROFILE_SERVICE_URL
+    - versionName: projects/$PROJECT_ID/secrets/RAKUTEN_SERVER_URL/versions/latest
+      env: RAKUTEN_SERVER_URL
+    - versionName: projects/$PROJECT_ID/secrets/GEMINI_API_KEY/versions/latest
+      env: GEMINI_API_KEY
+    - versionName: projects/$PROJECT_ID/secrets/RAKUTEN_APPLICATION_ID/versions/latest
+      env: RAKUTEN_APPLICATION_ID
+    - versionName: projects/$PROJECT_ID/secrets/RAKUTEN_AFFILIATE_ID/versions/latest
+      env: RAKUTEN_AFFILIATE_ID
 steps:
   # Docker イメージをビルド
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/turtle-buttler:$BUILD_ID', '.']
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/${_SERVICE_NAME}:$BUILD_ID', '.']
+  
   # Container Registry にプッシュ
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/turtle-buttler:$BUILD_ID']
+    args: ['push', 'gcr.io/$PROJECT_ID/${_SERVICE_NAME}:$BUILD_ID']
+  
   # Cloud Run にデプロイ（Secret Manager からシークレットを取得）
   - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
@@ -35,12 +51,24 @@ steps:
       - CHANNEL_SECRET
       - CREDENTIALS_ADMIN
       - CREDENTIALS
+      - USER_PROFILE_SERVICE_URL
+      - RAKUTEN_SERVER_URL
+      - GEMINI_API_KEY
+      - RAKUTEN_APPLICATION_ID
+      - RAKUTEN_AFFILIATE_ID
     args:
       - -c
       - |
-        gcloud run deploy turtle-buttler \
-          --image gcr.io/$PROJECT_ID/turtle-buttler:$BUILD_ID \
-          --region asia-northeast1 \
+        gcloud run deploy ${_SERVICE_NAME} \
+          --image gcr.io/$PROJECT_ID/${_SERVICE_NAME}:$BUILD_ID \
+          --region ${_REGION} \
           --platform managed \
           --allow-unauthenticated \
-            --set-secrets=FIREBASE_URL=FIREBASE_URL:latest,FIREBASE_API_KEY=FIREBASE_API_KEY:latest,SPREADSHEET_ID=SPREADSHEET_ID:latest,CO_API_KEY=CO_API_KEY:latest,CHANNEL_ACCESS=CHANNEL_ACCESS:latest,CHANNEL_SECRET=CHANNEL_SECRET:latest,CREDENTIALS_ADMIN=CREDENTIALS_ADMIN:latest,CREDENTIALS=CREDENTIALS:latest
+          --port 8080 \
+          --memory 1Gi \
+          --cpu 1 \
+          --concurrency 80 \
+          --max-instances 10 \
+          --set-secrets=FIREBASE_URL=FIREBASE_URL:latest,FIREBASE_API_KEY=FIREBASE_API_KEY:latest,SPREADSHEET_ID=SPREADSHEET_ID:latest,CO_API_KEY=CO_API_KEY:latest,CHANNEL_ACCESS=CHANNEL_ACCESS:latest,CHANNEL_SECRET=CHANNEL_SECRET:latest,CREDENTIALS_ADMIN=CREDENTIALS_ADMIN:latest,CREDENTIALS=CREDENTIALS:latest,USER_PROFILE_SERVICE_URL=USER_PROFILE_SERVICE_URL:latest,RAKUTEN_SERVER_URL=RAKUTEN_SERVER_URL:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,RAKUTEN_APPLICATION_ID=RAKUTEN_APPLICATION_ID:latest,RAKUTEN_AFFILIATE_ID=RAKUTEN_AFFILIATE_ID:latest
+
+timeout: '1200s'

@@ -2,27 +2,90 @@ import express, { Application, Request, Response } from 'express';
 import bodyParser from 'body-parser';
 import { google } from 'googleapis';
 import fetch from 'node-fetch';
-import * as admin from 'firebase-admin';
+// Firebase Admin SDKの直接的なインポートと初期化を削除
+// import * as admin from 'firebase-admin';
 require('dotenv').config();
 
-// Firebase Admin SDKの初期化
-const rawAdmin = process.env.CREDENTIALS_ADMIN;
-if (!rawAdmin) throw new Error('CREDENTIALS_ADMIN が未設定です');
-const decodedAdmin = Buffer.from(rawAdmin, 'base64').toString('utf-8');
-let serviceAccount;
-try {
-  serviceAccount = JSON.parse(decodedAdmin);
-} catch (err) {
-  console.error('CREDENTIALS_ADMIN のデコード結果:', decodedAdmin);
-  throw err;
+// MCPツールを呼び出すためのヘルパー関数
+declare function use_mcp_tool(server_name: string, tool_name: string, arguments: any): Promise<any>;
+
+// MCPツール用のフォールバック実装（テスト環境および未実装時）
+async function use_mcp_tool_fallback(server_name: string, tool_name: string, args: any): Promise<any> {
+  if (process.env.NODE_ENV === 'test') {
+    // テスト環境では適切なモックデータを返す
+    if (server_name === 'user-profile-server' && tool_name === 'get_user_profile') {
+      const userId = args.userId;
+      return JSON.stringify(testUserInfoStore.get(userId) || {
+        userId,
+        userName: "",
+        chatHistory: [],
+        recentTopics: [],
+        preferences: {
+          favoriteFood: "お好み焼き",
+          language: "関西弁",
+          favoriteColor: "",
+          favoriteMusic: "",
+          favoritePlace: ""
+        },
+        sentiment: "普通"
+      });
+    }
+    if (server_name === 'user-profile-server' && tool_name === 'update_user_profile') {
+      testUserInfoStore.set(args.userId, args.userInfo);
+      return 'success';
+    }
+    if (server_name === 'rakuten-server' && tool_name === 'search_rakuten_items') {
+      return JSON.stringify([
+        {
+          name: "テスト商品",
+          price: "1000円",
+          url: "https://example.com/product"
+        }
+      ]);
+    }
+  }
+  
+  // 本番環境でMCPツールが利用できない場合は、直接HTTPリクエストを送信
+  if (server_name === 'user-profile-server') {
+    const serviceUrl = process.env.USER_PROFILE_SERVICE_URL;
+    if (serviceUrl) {
+      const response = await fetch(`${serviceUrl}/${tool_name}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(arguments)
+      });
+      return await response.text();
+    }
+  }
+  
+  if (server_name === 'rakuten-server') {
+    const serviceUrl = process.env.RAKUTEN_SERVER_URL;
+    if (serviceUrl) {
+      const response = await fetch(`${serviceUrl}/${tool_name}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(arguments)
+      });
+      return await response.text();
+    }
+  }
+  
+  throw new Error(`MCP tool ${server_name}:${tool_name} not available`);
 }
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  databaseURL: process.env.FIREBASE_URL,
-});
-
-const db = admin.database();
+// MCPツールが利用可能かチェックして適切な関数を使用
+async function callMcpTool(server_name: string, tool_name: string, args: any): Promise<any> {
+  try {
+    // グローバルのuse_mcp_tool関数が利用可能な場合は使用
+    if (typeof use_mcp_tool !== 'undefined') {
+      return await use_mcp_tool(server_name, tool_name, args);
+    }
+  } catch (error) {
+    // use_mcp_toolが未定義の場合はフォールバックを使用
+  }
+  
+  return await use_mcp_tool_fallback(server_name, tool_name, args);
+}
 
 // テスト環境用のストア
 const testUserInfoStore = new Map<string, UserInfo>();
@@ -66,6 +129,7 @@ interface UserInfo {
     favoritePlace?: string;
   };
   sentiment?: string;
+  chatSummary?: string; // 会話の要約を追加
 }
 
 /**
@@ -197,6 +261,14 @@ export async function handleLineRequest(body: LineRequestBody) {
       // 会話履歴を更新
       updateChatHistory(userInfo, userMessage, replyMessage);
 
+      // 会話履歴が10件ごとに要約を生成
+      if (userInfo.chatHistory.length % 10 === 0) {
+        console.log('Summarizing chat history...');
+        userInfo.chatSummary = await summarizeChatHistory(userInfo.chatHistory);
+        userInfo.chatHistory = []; // 要約後、履歴をクリア
+        console.log('Chat summary updated:', userInfo.chatSummary);
+      }
+
       // テスト環境では返信をスキップ
       if (process.env.NODE_ENV !== 'test') {
         await replyToLine(replyToken, replyMessage);
@@ -209,6 +281,42 @@ export async function handleLineRequest(body: LineRequestBody) {
 
     // 感情分析 (応答メッセージとは独立して実行)
     analyzeUserSentiment(userInfo, userMessage);
+  }
+}
+
+/**
+ * summarizeChatHistory関数：会話履歴を要約します。
+ * @param {any[]} chatHistory - 会話履歴。
+ * @return {string} - 要約された会話内容。
+ */
+export async function summarizeChatHistory(chatHistory: any[]): Promise<string> {
+  const messages = chatHistory.flatMap(chat => [
+    { "role": "user", "content": chat.message },
+    { "role": "assistant", "content": chat.response }
+  ]);
+
+  const payload = JSON.stringify({
+    "contents": [
+      { "role": "user", "parts": [{ "text": "以下の会話履歴を簡潔に要約してください。" }] },
+      { "role": "model", "parts": [{ "text": "承知いたしました。" }] },
+      ...messages.map(msg => ({ "role": msg.role, "parts": [{ "text": msg.content }] }))
+    ]
+  });
+
+  try {
+    const response = await getGeminiResponse(payload); // Geminiで要約
+    return response;
+  } catch (err) {
+    console.error('Geminiでの要約失敗, Cohereにフォールバック:', err);
+    const coherePayload = JSON.stringify({
+      "model": "command-r-plus",
+      "messages": [
+        { "role": "system", "content": "以下の会話履歴を簡潔に要約してください。" },
+        ...messages
+      ]
+    });
+    const response = await getCohereResponse(coherePayload); // Cohereで要約
+    return response;
   }
 }
 
@@ -394,11 +502,12 @@ export function createCoherePayload(message: string, userInfo: UserInfo) {
   // 最近の話題を取得
   const recentTopics = userInfo.recentTopics || [];
 
-  // 会話履歴を取得
+  // 会話履歴を取得（文脈理解のため、直近2メッセージのみに制限）
   const chatHistory = userInfo.chatHistory || [];
 
-  // 会話履歴をLLMへの入力形式に変換
-  const messages = chatHistory.flatMap(chat => [
+  // 会話履歴から直近2メッセージのみ抽出してLLMへの入力形式に変換
+  const recentChatHistory = chatHistory.slice(-2); // 直近2メッセージのみ抽出
+  const messages = recentChatHistory.flatMap(chat => [
     { "role": "user", "content": chat.message },
     { "role": "assistant", "content": chat.response }
   ]);
@@ -413,7 +522,9 @@ export function createCoherePayload(message: string, userInfo: UserInfo) {
     .replace('${recentTopics}', recentTopics.join("、"))
     .replace('${sentiment}', userInfo.sentiment || "普通");
 
-  const sys_prompt = BASE_SYSTEM_PROMPT + userInfoPrompt;
+  const chatSummary = userInfo.chatSummary || "なし"; // 会話要約を取得。ない場合は「なし」とする
+
+  const sys_prompt = BASE_SYSTEM_PROMPT + userInfoPrompt + `\n\nこれまでの会話の要約:\n${chatSummary}\n\n【重要】直近のユーザーメッセージに対してのみ応答し、過去の発言への言及は避けてください。`;
 
   const payload = JSON.stringify({
     "model": "command-r-plus",
@@ -494,11 +605,12 @@ export function createGeminiPayload(message: string, userInfo: UserInfo) {
   // 最近の話題を取得
   const recentTopics = userInfo.recentTopics || [];
 
-  // 会話履歴を取得
+  // 会話履歴を取得（文脈理解のため、直近2メッセージのみに制限）
   const chatHistory = userInfo.chatHistory || [];
 
-  // 会話履歴をLLMへの入力形式に変換
-  const history = chatHistory.flatMap(chat => [
+  // 会話履歴から直近2メッセージのみ抽出してLLMへの入力形式に変換
+  const recentChatHistory = chatHistory.slice(-2); // 直近2メッセージのみ抽出
+  const history = recentChatHistory.flatMap(chat => [
     { "role": "user", "parts": [{ "text": chat.message }] },
     { "role": "model", "parts": [{ "text": chat.response }] }
   ]);
@@ -510,7 +622,9 @@ export function createGeminiPayload(message: string, userInfo: UserInfo) {
     .replace('${recentTopics}', recentTopics.join("、"))
     .replace('${sentiment}', userInfo.sentiment || "普通");
 
-  const sys_prompt = BASE_SYSTEM_PROMPT + userInfoPrompt;
+  const chatSummary = userInfo.chatSummary || "なし"; // 会話要約を取得。ない場合は「なし」とする
+
+  const sys_prompt = BASE_SYSTEM_PROMPT + userInfoPrompt + `\n\nこれまでの会話の要約:\n${chatSummary}\n\n【重要】直近のユーザーメッセージに対してのみ応答し、過去の発言への言及は避けてください。`;
 
   const contents = [
     { "role": "user", "parts": [{ "text": sys_prompt }] },
@@ -525,17 +639,23 @@ export function createGeminiPayload(message: string, userInfo: UserInfo) {
       {
         "function_declarations": [
           {
-            "name": "searchRakutenProducts",
-            "description": "Search for products on Rakuten Ichiba using keywords and return the product title, URL, and price.",
+            "name": "search_rakuten_items",
+            "description": "楽天で商品を検索し、商品リンクを取得します。",
             "parameters": {
               "type": "object",
               "properties": {
-                "query": {
+                "keyword": {
                   "type": "string",
-                  "description": "The keywords or product name to search for on Rakuten Ichiba."
+                  "description": "検索キーワード"
+                },
+                "hits": {
+                  "type": "number",
+                  "description": "取得する商品の数（最大30）",
+                  "minimum": 1,
+                  "maximum": 30
                 }
               },
-              "required": ["query"]
+              "required": ["keyword"]
             }
           }
         ]
@@ -583,35 +703,35 @@ export async function getGeminiResponse(payload: string): Promise<string> {
           const functionCall = part.function_call;
           console.log('Gemini Function Call:', functionCall);
 
-          // Handle searchRakutenProducts function call
-          if (functionCall.name === 'searchRakutenProducts') {
+          // Handle search_rakuten_items function call
+          if (functionCall.name === 'search_rakuten_items') {
             const args = functionCall.args;
-            if (args && typeof args.query === 'string') {
+            if (args && typeof args.keyword === 'string') {
               try {
-                const products = await searchRakutenProducts(args.query);
+                const products = await callMcpTool('rakuten-server', 'search_rakuten_items', { keyword: args.keyword, hits: args.hits });
                 // Return the function result to Gemini
                 return JSON.stringify({
                   tool_code: {
-                    name: 'searchRakutenProducts',
+                    name: 'search_rakuten_items',
                     result: JSON.stringify(products),
                   },
                 });
               } catch (error) {
-                console.error('Error executing searchRakutenProducts:', error);
+                console.error('Error executing search_rakuten_items:', error);
                 // Return an error result to Gemini
                 return JSON.stringify({
                   tool_code: {
-                    name: 'searchRakutenProducts',
+                    name: 'search_rakuten_items',
                     error: error instanceof Error ? error.message : 'An unknown error occurred.',
                   },
                 });
               }
             } else {
-              console.error('Invalid arguments for searchRakutenProducts:', args);
+              console.error('Invalid arguments for search_rakuten_items:', args);
               // Return an error for invalid arguments
               return JSON.stringify({
                 tool_code: {
-                  name: 'searchRakutenProducts',
+                  name: 'search_rakuten_items',
                   error: 'Invalid arguments provided.',
                 },
               });
@@ -662,7 +782,7 @@ export async function updateUserName(message: string, userId: string): Promise<s
   if (message.startsWith("名前は")) {
     const newName = message.substring(3).trim();
     userInfo.userName = newName;
-    saveUserInfo(userId, userInfo);
+    await saveUserInfoHandler(userId, userInfo); // saveUserInfoHandlerを呼び出すように変更
     return newName + "やね！これからよろしくやで！";
   }
   return null;
@@ -684,7 +804,7 @@ export async function updateFavoriteFood(message: string, userId: string): Promi
     if (process.env.NODE_ENV !== "test") {
       userInfo = await getUserInfoHandler(userId);
       userInfo.preferences.favoriteFood = newFood;
-      await saveUserInfo(userId, userInfo);
+      await saveUserInfoHandler(userId, userInfo); // saveUserInfoHandlerを呼び出すように変更
     }
     return `${newFood}か！ええやん！`;
   }
@@ -707,7 +827,7 @@ export async function updateFavoriteColor(message: string, userId: string): Prom
     if (process.env.NODE_ENV !== "test") {
       userInfo = await getUserInfoHandler(userId);
       userInfo.preferences.favoriteColor = newColor;
-      await saveUserInfo(userId, userInfo);
+      await saveUserInfoHandler(userId, userInfo); // saveUserInfoHandlerを呼び出すように変更
     }
     return `${newColor}か！素敵な色やね！`;
   }
@@ -721,7 +841,7 @@ export async function updateFavoriteMusic(message: string, userId: string): Prom
     if (process.env.NODE_ENV !== "test") {
       userInfo = await getUserInfoHandler(userId);
       userInfo.preferences.favoriteMusic = newMusic;
-      await saveUserInfo(userId, userInfo);
+      await saveUserInfoHandler(userId, userInfo); // saveUserInfoHandlerを呼び出すように変更
     }
     return `${newMusic}か！ええ趣味やね！`;
   }
@@ -735,7 +855,7 @@ export async function updateFavoritePlace(message: string, userId: string): Prom
     if (process.env.NODE_ENV !== "test") {
       userInfo = await getUserInfoHandler(userId);
       userInfo.preferences.favoritePlace = newPlace;
-      await saveUserInfo(userId, userInfo);
+      await saveUserInfoHandler(userId, userInfo); // saveUserInfoHandlerを呼び出すように変更
     }
     return `${newPlace}か！行ってみたいなぁ！`;
   }
@@ -760,22 +880,42 @@ export async function getUserInfoHandler(userId: string): Promise<UserInfo> {
       sentiment: "普通"
     };
   }
-  // 本番環境では Firebase から取得
-  const stored = await getUserInfo(userId);
-  return (stored as UserInfo) || {
-    userId,
-    userName: "",
-    chatHistory: [],
-    recentTopics: [],
-    preferences: {
-      favoriteFood: "お好み焼き",
-      language: "関西弁",
-      favoriteColor: "",
-      favoriteMusic: "",
-      favoritePlace: ""
-    },
-    sentiment: "普通"
-  };
+  // 本番環境では MCP ツールから取得
+  try {
+    const result = await callMcpTool('user-profile-server', 'get_user_profile', { userId });
+    const userInfo = JSON.parse(result); // MCPツールからの結果はJSON文字列として返される
+    return (userInfo as UserInfo) || {
+      userId,
+      userName: "",
+      chatHistory: [],
+      recentTopics: [],
+      preferences: {
+        favoriteFood: "お好み焼き",
+        language: "関西弁",
+        favoriteColor: "",
+        favoriteMusic: "",
+        favoritePlace: ""
+      },
+      sentiment: "普通"
+    };
+  } catch (error) {
+    console.error('Error calling get_user_profile MCP tool:', error);
+    // エラー発生時はデフォルト値を返すか、適切なエラーハンドリングを行う
+    return {
+      userId,
+      userName: "",
+      chatHistory: [],
+      recentTopics: [],
+      preferences: {
+        favoriteFood: "お好み焼き",
+        language: "関西弁",
+        favoriteColor: "",
+        favoriteMusic: "",
+        favoritePlace: ""
+      },
+      sentiment: "普通"
+    };
+  }
 }
 
 export async function generateReplyMessage(userMessage: string, userId: string, userInfo: UserInfo): Promise<string> {
@@ -795,8 +935,19 @@ export function updateChatHistory(userInfo: UserInfo, userMessage: string, reply
   });
 }
 
-export function saveUserInfoHandler(userId: string, userInfo: UserInfo): void {
-  saveUserInfo(userId, userInfo);
+export async function saveUserInfoHandler(userId: string, userInfo: UserInfo): Promise<void> {
+  // テスト環境ではストアに保存
+  if (process.env.NODE_ENV === "test") {
+    testUserInfoStore.set(userId, userInfo);
+    return;
+  }
+  // 本番環境では MCP ツールで保存
+  try {
+    await callMcpTool('user-profile-server', 'update_user_profile', { userId, profileData: userInfo });
+    console.log(`User info saved for ${userId} via MCP tool.`);
+  } catch (error) {
+    console.error('Error calling update_user_profile MCP tool:', error);
+  }
 }
 
 export function analyzeUserSentiment(userInfo: UserInfo, message: string): void {
@@ -829,43 +980,43 @@ export async function replyToLine(replyToken: string, message: string) {
   console.log(response);
 }
 
-// Firebase Realtime DatabaseのURL
-export const FIREBASE_URL = process.env.FIREBASE_URL;
+// Firebase Realtime Databaseの直接的な操作関数を削除
+// export const FIREBASE_URL = process.env.FIREBASE_URL;
 
-export async function saveUserInfo(userId: string, userInfo: UserInfo): Promise<void> {
-  try {
-    const userRef = db.ref("users/" + userId);
-    await userRef.set(userInfo);
-    console.log(`User info saved for ${userId}`);
-  } catch (err) {
-    console.error('ユーザー情報の保存エラー:', err);
-  }
-}
+// export async function saveUserInfo(userId: string, userInfo: UserInfo): Promise<void> {
+//   try {
+//     const userRef = db.ref("users/" + userId);
+//     await userRef.set(userInfo);
+//     console.log(`User info saved for ${userId}`);
+//   } catch (err) {
+//     console.error('ユーザー情報の保存エラー:', err);
+//   }
+// }
 
-export async function getUserInfo(userId: string): Promise<UserInfo | null> {
-  try {
-    const userRef = db.ref("users/" + userId);
-    const snapshot = await userRef.once("value");
-    if (snapshot.exists()) {
-      return snapshot.val() as UserInfo;
-    } else {
-      return null;
-    }
-  } catch (err) {
-    console.error('ユーザー情報の取得エラー:', err);
-    return null;
-  }
-}
+// export async function getUserInfo(userId: string): Promise<UserInfo | null> {
+//   try {
+//     const userRef = db.ref("users/" + userId);
+//     const snapshot = await userRef.once("value");
+//     if (snapshot.exists()) {
+//       return snapshot.val() as UserInfo;
+//     } else {
+//       return null;
+//     }
+//   } catch (err) {
+//     console.error('ユーザー情報の取得エラー:', err);
+//     return null;
+//   }
+// }
 
-export async function deleteUserInfo(userId: string): Promise<void> {
-  try {
-    const userRef = db.ref("users/" + userId);
-    await userRef.remove();
-    console.log(`Deleted user info for ${userId}`);
-  } catch (err) {
-    console.error('ユーザー情報の削除エラー:', err);
-  }
-}
+// export async function deleteUserInfo(userId: string): Promise<void> {
+//   try {
+//     const userRef = db.ref("users/" + userId);
+//     await userRef.remove();
+//     console.log(`Deleted user info for ${userId}`);
+//   } catch (err) {
+//     console.error('ユーザー情報の削除エラー:', err);
+//   }
+// }
 
 // 感情分析を行う関数
 export function analyzeSentiment(message: string): string {
@@ -884,54 +1035,6 @@ export function analyzeSentiment(message: string): string {
 const server = app.listen(port, "0.0.0.0", () => {
   console.log(`Kame Butler listening on port ${port}`);
 });
-
-import dotenv from 'dotenv';
-
-dotenv.config();
-
-export interface RakutenProduct {
-    Title: string;
-    URL: string;
-    Price: number;
-}
-
-export async function searchRakutenProducts(query: string): Promise<RakutenProduct[]> {
-    try {
-        const applicationId = process.env.RAKUTEN_APPLICATION_ID;
-        const affiliateId = process.env.RAKUTEN_AFFILIATE_ID;
-
-        if (!applicationId || !affiliateId) {
-            console.error('RAKUTEN_APPLICATION_ID or RAKUTEN_AFFILIATE_ID is not set.');
-            return [];
-        }
-
-        const url = `https://app.rakuten.co.jp/services/api/IchibaItem/Search/20220601?applicationId=${applicationId}&affiliateId=${affiliateId}&keyword=${encodeURIComponent(query)}&hits=5&format=json`;
-
-        const response = await fetch(url);
-        const responseBody: any = await response.json();
-
-        console.log('Rakuten API Search Response:', JSON.stringify(responseBody, null, 2));
-
-        const products: RakutenProduct[] = [];
-        if (responseBody.Items && Array.isArray(responseBody.Items)) {
-            for (const itemWrapper of responseBody.Items) {
-                const item = itemWrapper.Item;
-                if (item && item.itemName && item.itemUrl && item.itemPrice) {
-                    products.push({
-                        Title: item.itemName,
-                        URL: item.itemUrl,
-                        Price: item.itemPrice,
-                    });
-                }
-            }
-        }
-        return products;
-    } catch (error) {
-        console.error('Error searching Rakuten products:', error);
-        return [];
-    }
-}
-
 
 process.on('SIGTERM', () => {
   console.log('SIGTERM signal received: closing HTTP server');
