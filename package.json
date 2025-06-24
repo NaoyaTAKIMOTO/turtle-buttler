@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node ./dist/kame_buttler.js",
     "test": "TS_NODE_FILES=true mocha -r ts-node/register -r dotenv/config './src/*.test.ts'",
+    "test:all": "npm test && cd apps/user-profile-service && npm test && cd ../rakuten-server && npm test",
     "build": "tsc",
     "build:apps": "cd apps/user-profile-service && npm run build && cd ../rakuten-server && npm run build"
   },
@@ -19,8 +20,10 @@
     "@types/node": "^22.14.1",
     "@types/node-fetch": "^2.6.12",
     "@types/supertest": "^6.0.3",
+    "@types/sinon": "^17.0.3",
     "chai": "^4.3.7",
     "mocha": "^11.1.0",
+    "sinon": "^18.0.1",
     "supertest": "^7.1.0",
     "ts-node": "^10.9.2"
   },

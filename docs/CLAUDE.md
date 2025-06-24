@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+問題について原因を調査して説明して。
+また実装計画について全体像を説明して。
+ユーザーに理解を得てから実装に進んで。
+
 ## Development Commands
 
 ### Build & Run
