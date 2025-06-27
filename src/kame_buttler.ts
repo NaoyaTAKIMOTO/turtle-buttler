@@ -1,6 +1,5 @@
 import express, { Application, Request, Response } from 'express';
 import bodyParser from 'body-parser';
-import { google } from 'googleapis';
 import fetch from 'node-fetch';
 // Firebase Admin SDKの直接的なインポートと初期化を削除
 // import * as admin from 'firebase-admin';
@@ -31,7 +30,7 @@ async function use_mcp_tool_fallback(server_name: string, tool_name: string, arg
       });
     }
     if (server_name === 'user-profile-server' && tool_name === 'update_user_profile') {
-      testUserInfoStore.set(args.userId, args.userInfo);
+      testUserInfoStore.set(args.userId, args.profileData);
       return 'success';
     }
     if (server_name === 'rakuten-server' && tool_name === 'search_rakuten_items') {
@@ -89,7 +88,6 @@ async function callMcpTool(server_name: string, tool_name: string, args: any): P
 
 // テスト環境用のストア
 const testUserInfoStore = new Map<string, UserInfo>();
-const testMessageStore = new Map<string, string>();
 
 const app: Application = express();
 const port: number = 8080;
@@ -104,8 +102,6 @@ app.post(
 
 export default app;
 
-// スプレッドシートのID
-const SPREADSHEET_ID: string = process.env.SPREADSHEET_ID || "";
 // LINE Botのチャネルアクセストークンとチャネルシークレット
 const CHANNEL_ACCESS_TOKEN: string = process.env.CHANNEL_ACCESS || "";
 const CHANNEL_SECRET: string = process.env.CHANNEL_SECRET || "";
@@ -151,36 +147,6 @@ export async function doPost(req: Request, res: Response) {
   }
 }
 
-async function enableAppsScriptAPI() {
-  const rawCred = process.env.CREDENTIALS;
-  if (!rawCred) throw new Error('CREDENTIALS が未設定です');
-  const decodedCred = Buffer.from(rawCred, 'base64').toString('utf-8');
-  let credentials;
-  try {
-    credentials = JSON.parse(decodedCred);
-  } catch (err) {
-    console.error('CREDENTIALS のデコード結果:', decodedCred);
-    throw err;
-  }
-  const auth = new google.auth.GoogleAuth({
-    credentials: credentials,
-    scopes: ['https://www.googleapis.com/auth/script.projects'],
-  });
-
-  // Apps Script API クライアントを初期化（認証情報を auth に渡す）
-  const script = google.script({ version: 'v1', auth });
-
-  try {
-    const res = await script.projects.create({
-      requestBody: {
-        title: 'AIカメ執事',
-      },
-    });
-    console.log('Apps Script API が有効になりました。', res.data);
-  } catch (error) {
-    console.error('Apps Script API の有効化エラー:', error);
-  }
-}
 
 /**
  * handleLineRequest関数：LINEからのリクエストを処理します。
@@ -223,8 +189,6 @@ export async function handleLineRequest(body: LineRequestBody) {
       // こちらも同様の注意点あり
     }
 
-    // メッセージをスプレッドシートに記録
-    await logMessageToSpreadsheet(userMessage, userId);
 
     // ユーザー情報を取得または初期化
     const userInfo: UserInfo = await getUserInfoHandler(userId);
@@ -255,8 +219,6 @@ export async function handleLineRequest(body: LineRequestBody) {
     if (replyMessage) { // generateReplyMessage で応答が生成された場合のみ
       console.log('Reply message:', replyMessage);
 
-      // メッセージをスプレッドシートに記録
-      await logMessageToSpreadsheet("Bot: " + replyMessage, userId);
     
       // 会話履歴を更新
       updateChatHistory(userInfo, userMessage, replyMessage);
@@ -303,21 +265,8 @@ export async function summarizeChatHistory(chatHistory: any[]): Promise<string> 
     ]
   });
 
-  try {
-    const response = await getGeminiResponse(payload); // Geminiで要約
-    return response;
-  } catch (err) {
-    console.error('Geminiでの要約失敗, Cohereにフォールバック:', err);
-    const coherePayload = JSON.stringify({
-      "model": "command-r-plus",
-      "messages": [
-        { "role": "system", "content": "以下の会話履歴を簡潔に要約してください。" },
-        ...messages
-      ]
-    });
-    const response = await getCohereResponse(coherePayload); // Cohereで要約
-    return response;
-  }
+  const response = await getGeminiResponse(payload); // Geminiで要約
+  return response;
 }
 
 /**
@@ -332,127 +281,8 @@ export function handleNonLineRequest(req: Request, res: Response) {
   res.status(200).json({ "message": "LINE以外からのリクエストを受け付けました。" });
 }
 
-// 受信したメッセージの内容と送信元のユーザーIDをスプレッドシートに記録する
-export async function logMessageToSpreadsheet(message: string, userId: string) {
-  // テスト環境では、スプレッドシートへの書き込みをスキップ
-  if (process.env.NODE_ENV === "test") {
-    testMessageStore.set(userId, message);
-    return;
-  }
-  let auth: any;
-  if (process.env.CREDENTIALS) {
-    const decoded = Buffer.from(process.env.CREDENTIALS, 'base64').toString('utf-8');
-    const credentials = JSON.parse(decoded);
-    auth = new google.auth.GoogleAuth({
-      credentials,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
-  } else {
-    auth = new google.auth.GoogleAuth({
-      keyFile: process.env.CREDENTIALS_JSON,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
-  }
 
-  //認証クライアントを作成
-  const client = await auth.getClient();
 
-  //Google Sheets APIにアクセス
-  const googleSheets = google.sheets({ version: 'v4', auth: client as any });
-
-  const spreadsheetId = SPREADSHEET_ID;
-
-  // データの追加
-  const appendOptions = {
-    spreadsheetId: spreadsheetId,
-    range: 'シート1!A1', // シート名と追加する範囲
-    valueInputOption: 'USER_ENTERED',
-    insertDataOption: 'INSERT_ROWS',
-    resource: {
-      values: [
-        [new Date(), userId, message],
-      ],
-    },
-  };
-  try {
-    const appendResponse = await googleSheets.spreadsheets.values.append(appendOptions);
-    console.log('スプレッドシートにデータを追加しました。', appendResponse.data);
-  } catch (err) {
-    console.error('スプレッドシートへのデータ追加エラー:', err);
-  }
-}
-
-export async function getLatestMessageByUserId(userId: string): Promise<string | null> {
-  // テスト環境では、メモリからメッセージを取得
-  if (process.env.NODE_ENV === "test") {
-    return testMessageStore.get(userId) || null;
-  }
-  let auth: any;
-  if (process.env.CREDENTIALS) {
-    const decoded = Buffer.from(process.env.CREDENTIALS, 'base64').toString('utf-8');
-    const credentials = JSON.parse(decoded);
-    auth = new google.auth.GoogleAuth({
-      credentials,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-    });
-  } else {
-    auth = new google.auth.GoogleAuth({
-      keyFile: process.env.CREDENTIALS_JSON,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-    });
-  }
-
-  //認証クライアントを作成
-  const client = await auth.getClient();
-
-  //Google Sheets APIにアクセス
-  const googleSheets = google.sheets({ version: 'v4', auth: client as any });
-
-  const spreadsheetId = SPREADSHEET_ID;
-  const range = 'シート1!A1:C'; // 取得する範囲
-
-  try {
-    const getOptions = {
-      spreadsheetId: spreadsheetId,
-      range: range,
-    };
-    const getResponse = await googleSheets.spreadsheets.values.get(getOptions);
-    const data = getResponse.data.values;
-
-    let latestMessage: string | null = null;
-    let latestTimestamp: Date = new Date(0); // 初期値を最も古い日付に設定
-    let latestBotMessage: string | null = null;
-    let latestBotTimestamp: Date = new Date(0);
-
-    if (data) {
-      for (const row of data) {
-        const rowUserId = row[1]; // userIdが格納されている列のインデックスを指定します
-        const message = row[2]; // messageが格納されている列のインデックスを指定します
-        const timestamp = new Date(row[0]); // timestampが格納されている列のインデックスを指定します
-
-        // userIdが一致し、最新のタイムスタンプである場合
-        if (rowUserId === userId && !message.includes("Bot:") && timestamp > latestTimestamp) {
-          latestMessage = message;
-          latestTimestamp = timestamp;
-        } else if (rowUserId === userId && message.includes("Bot:") && timestamp > latestTimestamp) {
-          // うまくユーザの発話に対応したbotの発話を抜き出せないなぁ
-          latestBotMessage = message;
-          latestBotTimestamp = timestamp;
-        }
-      }
-    }
-
-    // 最新のメッセージを返す
-    return latestMessage + "()" + latestBotMessage;
-  } catch (err) {
-    console.error('スプレッドシートからのデータ取得エラー:', err);
-    return null;
-  }
-}
-
-export function testGetLatestMessageByUserId() {
-  console.log(getLatestMessageByUserId("Ubf4914e7aed629eac617ce8d66410f49"))
-}
 
 // 受信したメッセージに応じて応答を生成
 export function getReplyMessage(message: string): string {
@@ -467,127 +297,8 @@ export function getReplyMessage(message: string): string {
   }
 }
 
-/**
- * postCommandR関数：ユーザーのメッセージに基づいて、LLMに応答を生成させます。
- * @param {string} message - ユーザーからのメッセージ。
- * @param {string} userId - ユーザーID。
- * @return {string} - LLMからの応答。
- */
-export async function postCommandR(message: string, userId: string): Promise<string> {
-  console.log(message);
-  // ユーザー情報を取得
-  const userInfo = await getUserInfoHandler(userId);
-  // LLMへのリクエストを生成
-  const payload = createCoherePayload(message, userInfo);
-  // LLMにリクエストを送信して応答を取得
-  const response = await getCohereResponse(payload);
-  return response;
-}
 
-/**
- * createCoherePayload関数：Cohere APIに送信するペイロードを生成します。
- * @param {string} message - ユーザーからのメッセージ。
- * @param {object} userInfo - ユーザー情報。
- * @return {object} - Cohere APIに送信するペイロード。
- */
-export function createCoherePayload(message: string, userInfo: UserInfo) {
-  const CO_API_KEY = process.env.CO_API_KEY;
 
-  // ユーザー名を取得
-  const userName = userInfo.userName || "";
-
-  // 好きな食べ物を取得
-  const favoriteFood = userInfo.preferences && userInfo.preferences.favoriteFood || "お好み焼き";
-
-  // 最近の話題を取得
-  const recentTopics = userInfo.recentTopics || [];
-
-  // 会話履歴を取得（文脈理解のため、直近2メッセージのみに制限）
-  const chatHistory = userInfo.chatHistory || [];
-
-  // 会話履歴から直近2メッセージのみ抽出してLLMへの入力形式に変換
-  const recentChatHistory = chatHistory.slice(-2); // 直近2メッセージのみ抽出
-  const messages = recentChatHistory.flatMap(chat => [
-    { "role": "user", "content": chat.message },
-    { "role": "assistant", "content": chat.response }
-  ]);
-
-  // 最新のメッセージをLLMへの入力に追加
-  messages.push({ "role": "user", "content": message });
-
-  // システムプロンプトを生成
-  const userInfoPrompt = USER_INFO_PROMPT_TEMPLATE
-    .replace('${userName}', userName)
-    .replace('${favoriteFood}', favoriteFood)
-    .replace('${recentTopics}', recentTopics.join("、"))
-    .replace('${sentiment}', userInfo.sentiment || "普通");
-
-  const chatSummary = userInfo.chatSummary || "なし"; // 会話要約を取得。ない場合は「なし」とする
-
-  const sys_prompt = BASE_SYSTEM_PROMPT + userInfoPrompt + `\n\nこれまでの会話の要約:\n${chatSummary}\n\n【重要】直近のユーザーメッセージに対してのみ応答し、過去の発言への言及は避けてください。`;
-
-  const payload = JSON.stringify({
-    "model": "command-r-plus",
-    "messages": [
-      { "role": "system", "content": sys_prompt },
-      ...messages
-    ]
-  });
-  return payload;
-}
-
-/**
- * getCohereResponse関数：Cohere APIにリクエストを送信して応答を取得します。
- * @param {object} payload - Cohere APIに送信するペイロード。
- * @return {string} - LLMからの応答。
- */
-export async function getCohereResponse(payload: string): Promise<string> {
-  const CO_API_KEY = process.env.CO_API_KEY;
-  const url = "https://api.cohere.com/v2/chat";
-  const headers: { [key: string]: string } = {
-    "accept": "application/json",
-    "content-type": "application/json",
-    "Authorization": "Bearer " + CO_API_KEY
-  };
-  const options: { method: string; headers: { [key: string]: string }; body: string } = {
-    "method": "post",
-    "headers": headers,
-    "body": payload
-  };
-  console.log(options)
-
-  const response = await fetch(url, options);
-  const responseBody: any = await response.json();
-  console.log('Full Cohere response:', JSON.stringify(responseBody, null, 2));
-
-  function extractText(raw: any): string {
-    if (raw == null) return '';
-    if (typeof raw === 'string') return raw;
-    if (Array.isArray(raw)) return raw.map(extractText).join('');
-    if (typeof raw === 'object') {
-      if ('text' in raw && typeof raw.text === 'string') return raw.text;
-      if ('content' in raw) return extractText((raw as any).content);
-      return JSON.stringify(raw);
-    }
-    return '';
-  }
-
-  // choices を優先
-  if (Array.isArray(responseBody.choices) && responseBody.choices.length > 0) {
-    const raw = responseBody.choices[0].message?.content ?? responseBody.choices[0].message ?? responseBody.choices[0];
-    const text = extractText(raw);
-    console.log('Resolved content:', text);
-    return text;
-  }
-  // message.content をフォールバックで処理
-  if (responseBody.message) {
-    const raw = responseBody.message.content ?? responseBody.message;
-    const text = extractText(raw);
-    console.log('Resolved content:', text);
-    return text;
-  }
-  throw new Error('Invalid Cohere responseBody');
-}
 
 /**
  * createGeminiPayload関数：Gemini APIに送信するペイロードを生成します。
@@ -863,9 +574,9 @@ export async function updateFavoritePlace(message: string, userId: string): Prom
 }
 
 export async function getUserInfoHandler(userId: string): Promise<UserInfo> {
-  // テスト環境ではデフォルト値を返す
+  // テスト環境ではtestUserInfoStoreから取得、なければデフォルト値を返す
   if (process.env.NODE_ENV === "test") {
-    return {
+    return testUserInfoStore.get(userId) || {
       userId,
       userName: "",
       chatHistory: [],
@@ -919,12 +630,7 @@ export async function getUserInfoHandler(userId: string): Promise<UserInfo> {
 }
 
 export async function generateReplyMessage(userMessage: string, userId: string, userInfo: UserInfo): Promise<string> {
-  try {
-    return await postGemini(userMessage, userId);
-  } catch (err) {
-    console.error('Gemini呼び出し失敗, Cohereにフォールバック:', err);
-    return await postCommandR(userMessage, userId);
-  }
+  return await postGemini(userMessage, userId);
 }
 
 export function updateChatHistory(userInfo: UserInfo, userMessage: string, replyMessage: string): void {
