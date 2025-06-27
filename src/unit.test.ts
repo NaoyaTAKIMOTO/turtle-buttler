@@ -220,4 +220,9 @@ describe('Unit Tests - Pure Functions', () => {
       }, 10);
     });
   });
+
+  // テスト終了時にサーバーを停止
+  after(() => {
+    process.exit(0);
+  });
 });

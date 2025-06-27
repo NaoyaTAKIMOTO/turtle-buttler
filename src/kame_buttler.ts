@@ -194,6 +194,9 @@ export async function handleLineRequest(body: LineRequestBody) {
     const userInfo: UserInfo = await getUserInfoHandler(userId);
 
     // 最近の話題を更新
+    if (!userInfo.recentTopics) {
+      userInfo.recentTopics = [];
+    }
     userInfo.recentTopics.push(userMessage);
     // recentTopicsの要素数が5を超えた場合は、古い要素を削除
     if (userInfo.recentTopics.length > 5) {
@@ -514,6 +517,9 @@ export async function updateFavoriteFood(message: string, userId: string): Promi
     let userInfo: any;
     if (process.env.NODE_ENV !== "test") {
       userInfo = await getUserInfoHandler(userId);
+      if (!userInfo.preferences) {
+        userInfo.preferences = { favoriteFood: "お好み焼き", language: "関西弁" };
+      }
       userInfo.preferences.favoriteFood = newFood;
       await saveUserInfoHandler(userId, userInfo); // saveUserInfoHandlerを呼び出すように変更
     }
@@ -537,6 +543,9 @@ export async function updateFavoriteColor(message: string, userId: string): Prom
     let userInfo: any;
     if (process.env.NODE_ENV !== "test") {
       userInfo = await getUserInfoHandler(userId);
+      if (!userInfo.preferences) {
+        userInfo.preferences = { favoriteFood: "お好み焼き", language: "関西弁" };
+      }
       userInfo.preferences.favoriteColor = newColor;
       await saveUserInfoHandler(userId, userInfo); // saveUserInfoHandlerを呼び出すように変更
     }
@@ -551,6 +560,9 @@ export async function updateFavoriteMusic(message: string, userId: string): Prom
     let userInfo: any;
     if (process.env.NODE_ENV !== "test") {
       userInfo = await getUserInfoHandler(userId);
+      if (!userInfo.preferences) {
+        userInfo.preferences = { favoriteFood: "お好み焼き", language: "関西弁" };
+      }
       userInfo.preferences.favoriteMusic = newMusic;
       await saveUserInfoHandler(userId, userInfo); // saveUserInfoHandlerを呼び出すように変更
     }
@@ -565,6 +577,9 @@ export async function updateFavoritePlace(message: string, userId: string): Prom
     let userInfo: any;
     if (process.env.NODE_ENV !== "test") {
       userInfo = await getUserInfoHandler(userId);
+      if (!userInfo.preferences) {
+        userInfo.preferences = { favoriteFood: "お好み焼き", language: "関西弁" };
+      }
       userInfo.preferences.favoritePlace = newPlace;
       await saveUserInfoHandler(userId, userInfo); // saveUserInfoHandlerを呼び出すように変更
     }
@@ -634,6 +649,9 @@ export async function generateReplyMessage(userMessage: string, userId: string, 
 }
 
 export function updateChatHistory(userInfo: UserInfo, userMessage: string, replyMessage: string): void {
+  if (!userInfo.chatHistory) {
+    userInfo.chatHistory = [];
+  }
   userInfo.chatHistory.push({
     "timestamp": new Date().toISOString(),
     "message": userMessage,
