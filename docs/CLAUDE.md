@@ -6,6 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 また実装計画について全体像を説明して。
 ユーザーに理解を得てから実装に進んで。
 テストを通してからコミットして。
+timeoutはテスト失敗扱い。
+コミットする時にREADMEに反映する。
+make コマンドを利用して。
 
 ## Development Commands
 

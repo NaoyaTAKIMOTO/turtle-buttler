@@ -1,0 +1,161 @@
+{
+  "rules": {
+    // 高セキュリティ版：将来のクライアントサイドアクセスに備えた厳格なルール
+    
+    "userProfiles": {
+      "$userId": {
+        // 認証されたユーザーは自分のデータのみアクセス可能
+        ".read": "auth != null && (auth.uid == $userId || auth.token.admin == true)",
+        ".write": "auth != null && (auth.uid == $userId || auth.token.admin == true)",
+        
+        // データ整合性チェック
+        ".validate": "newData.hasChildren(['userId', 'userName', 'preferences']) && newData.child('userId').val() == $userId",
+        
+        // 必須フィールドの検証
+        "userId": {
+          ".validate": "newData.isString() && newData.val() == $userId && newData.val().matches(/^U[0-9a-f]{32}$/)"
+        },
+        
+        "userName": {
+          ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 50 && !newData.val().matches(/[<>\"'&]/)  // XSS防止"
+        },
+        
+        // チャット履歴（プライベートデータ）
+        "chatHistory": {
+          ".read": "auth != null && (auth.uid == $userId || auth.token.admin == true)",
+          ".write": "auth != null && (auth.uid == $userId || auth.token.admin == true)",
+          ".validate": "newData.val().length <= 50",  // 履歴制限
+          "$index": {
+            ".validate": "newData.hasChildren(['timestamp', 'message', 'response']) && root.child('userProfiles').child($userId).child('userId').val() == $userId",
+            "timestamp": {
+              ".validate": "newData.isString() && newData.val().matches(/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/)"
+            },
+            "message": {
+              ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 500 && !newData.val().matches(/[<>\"'&]/)  // XSS防止"
+            },
+            "response": {
+              ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 1000"
+            }
+          }
+        },
+        
+        // 最近の話題（制限付き）
+        "recentTopics": {
+          ".validate": "newData.val().length <= 5",
+          "$index": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 100 && !newData.val().matches(/[<>\"'&]/)"
+          }
+        },
+        
+        // 設定情報（制限付き）
+        "preferences": {
+          ".validate": "newData.hasChildren(['favoriteFood', 'language'])",
+          "favoriteFood": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 30 && !newData.val().matches(/[<>\"'&]/)"
+          },
+          "language": {
+            ".validate": "newData.isString() && ['関西弁', '標準語', '博多弁', '津軽弁', '沖縄弁'].contains(newData.val())"
+          },
+          "favoriteColor": {
+            ".validate": "newData.isString() && newData.val().length <= 20 && newData.val().matches(/^[\\u3040-\\u309F\\u30A0-\\u30FF\\u4E00-\\u9FAF\\u0041-\\u005A\\u0061-\\u007A0-9 ]+$/)"
+          },
+          "favoriteMusic": {
+            ".validate": "newData.isString() && newData.val().length <= 50 && !newData.val().matches(/[<>\"'&]/)"
+          },
+          "favoritePlace": {
+            ".validate": "newData.isString() && newData.val().length <= 50 && !newData.val().matches(/[<>\"'&]/)"
+          }
+        },
+        
+        // 感情分析（読み取り専用：システムが設定）
+        "sentiment": {
+          ".write": "auth != null && auth.token.admin == true",
+          ".validate": "newData.isString() && ['positive', 'negative', 'neutral', 'angry', '普通'].contains(newData.val())"
+        },
+        
+        // 会話要約（読み取り専用：システムが設定）
+        "chatSummary": {
+          ".write": "auth != null && auth.token.admin == true",
+          ".validate": "newData.isString() && newData.val().length <= 2000"
+        },
+        
+        // システムメタデータ（読み取り専用）
+        "createdAt": {
+          ".write": "!data.exists()",  // 作成時のみ
+          ".validate": "newData.isString()"
+        },
+        "updatedAt": {
+          ".write": "auth != null && (auth.uid == $userId || auth.token.admin == true)",
+          ".validate": "newData.isString()"
+        },
+        "lastLoginAt": {
+          ".write": "auth != null && (auth.uid == $userId || auth.token.admin == true)",
+          ".validate": "newData.isString()"
+        },
+        
+        // 不正なフィールドの作成を防ぐ
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
+    
+    // 管理者専用データ
+    "admin": {
+      ".read": "auth != null && auth.token.admin == true",
+      ".write": "auth != null && auth.token.admin == true",
+      
+      "systemLogs": {
+        "$logId": {
+          ".validate": "newData.hasChildren(['timestamp', 'level', 'message'])",
+          "timestamp": {
+            ".validate": "newData.isString()"
+          },
+          "level": {
+            ".validate": "newData.isString() && ['info', 'warn', 'error', 'debug'].contains(newData.val())"
+          },
+          "message": {
+            ".validate": "newData.isString() && newData.val().length <= 1000"
+          },
+          "userId": {
+            ".validate": "newData.isString() && newData.val().length <= 50"
+          }
+        }
+      },
+      
+      "stats": {
+        "userCount": {
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        "messageCount": {
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        "errorCount": {
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        "lastUpdated": {
+          ".validate": "newData.isString()"
+        }
+      }
+    },
+    
+    // 公開統計（読み取り専用）
+    "publicStats": {
+      ".read": true,
+      ".write": "auth != null && auth.token.admin == true",
+      "totalUsers": {
+        ".validate": "newData.isNumber() && newData.val() >= 0"
+      },
+      "monthlyActiveUsers": {
+        ".validate": "newData.isNumber() && newData.val() >= 0"
+      }
+    },
+    
+    // 全ての未定義パスを拒否
+    "$other": {
+      ".read": false,
+      ".write": false,
+      ".validate": false
+    }
+  }
+}

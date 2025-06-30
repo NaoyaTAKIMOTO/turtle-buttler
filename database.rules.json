@@ -1,0 +1,133 @@
+{
+  "rules": {
+    // カメ執事AIはFirebase Admin SDKを使用してアクセス
+    // LINE Webhookサーバーからのみアクセスされる
+    
+    "userProfiles": {
+      "$userId": {
+        // Admin SDKからの読み書きを許可
+        // 実際の認証はアプリケーション層で制御
+        ".read": true,
+        ".write": true,
+        
+        // データ構造の基本検証
+        ".validate": "newData.hasChildren(['userId']) && newData.child('userId').val() == $userId",
+        
+        // ユーザーID検証（LINE User ID形式）
+        "userId": {
+          ".validate": "newData.isString() && newData.val() == $userId && newData.val().length >= 10 && newData.val().length <= 50"
+        },
+        
+        // ユーザー名（LINEから取得または設定）
+        "userName": {
+          ".validate": "newData.isString() && newData.val().length <= 100"
+        },
+        
+        // チャット履歴（最大100件）
+        "chatHistory": {
+          ".validate": "newData.val().length <= 100",
+          "$index": {
+            ".validate": "newData.hasChildren(['timestamp', 'message', 'response'])",
+            "timestamp": {
+              ".validate": "newData.isString() && newData.val().matches(/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}/)"
+            },
+            "message": {
+              ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 1000"
+            },
+            "response": {
+              ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 2000"
+            }
+          }
+        },
+        
+        // 最近の話題（最大5件）
+        "recentTopics": {
+          ".validate": "newData.val().length <= 5",
+          "$index": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 200"
+          }
+        },
+        
+        // ユーザー設定
+        "preferences": {
+          ".validate": "newData.hasChildren(['favoriteFood', 'language'])",
+          "favoriteFood": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 50"
+          },
+          "language": {
+            ".validate": "newData.isString() && ['関西弁', '標準語', '博多弁', '津軽弁'].contains(newData.val())"
+          },
+          "favoriteColor": {
+            ".validate": "newData.isString() && newData.val().length <= 30"
+          },
+          "favoriteMusic": {
+            ".validate": "newData.isString() && newData.val().length <= 100"
+          },
+          "favoritePlace": {
+            ".validate": "newData.isString() && newData.val().length <= 100"
+          }
+        },
+        
+        // 感情分析結果
+        "sentiment": {
+          ".validate": "newData.isString() && ['positive', 'negative', 'neutral', 'angry', '普通'].contains(newData.val())"
+        },
+        
+        // 会話要約（AIによる要約）
+        "chatSummary": {
+          ".validate": "newData.isString() && newData.val().length <= 5000"
+        },
+        
+        // 作成・更新日時
+        "createdAt": {
+          ".validate": "newData.isString()"
+        },
+        "updatedAt": {
+          ".validate": "newData.isString()"
+        }
+      }
+    },
+    
+    // システム統計（管理用）
+    "systemStats": {
+      ".read": true,
+      ".write": true,
+      "totalUsers": {
+        ".validate": "newData.isNumber() && newData.val() >= 0"
+      },
+      "dailyActiveUsers": {
+        ".validate": "newData.isNumber() && newData.val() >= 0"
+      },
+      "totalMessages": {
+        ".validate": "newData.isNumber() && newData.val() >= 0"
+      },
+      "lastUpdated": {
+        ".validate": "newData.isString()"
+      }
+    },
+    
+    // 設定情報（アプリケーション設定）
+    "appConfig": {
+      ".read": true,
+      ".write": true,
+      "geminiSettings": {
+        "maxTokens": {
+          ".validate": "newData.isNumber() && newData.val() >= 100 && newData.val() <= 8192"
+        },
+        "temperature": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 2"
+        }
+      },
+      "lineSettings": {
+        "webhookEnabled": {
+          ".validate": "newData.isBoolean()"
+        }
+      }
+    },
+    
+    // その他の未定義パスへのアクセスを拒否
+    "$other": {
+      ".validate": false
+    }
+  }
+}

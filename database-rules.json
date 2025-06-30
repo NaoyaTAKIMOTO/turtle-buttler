@@ -1,0 +1,88 @@
+{
+  "rules": {
+    "userProfiles": {
+      "$userId": {
+        // ユーザーは自分のデータのみアクセス可能
+        ".read": "auth != null && auth.uid == $userId",
+        ".write": "auth != null && auth.uid == $userId",
+        
+        // データ構造の検証
+        ".validate": "newData.hasChildren(['userId']) && newData.child('userId').val() == $userId",
+        
+        // 個別フィールドの検証
+        "userId": {
+          ".validate": "newData.isString() && newData.val() == $userId"
+        },
+        "userName": {
+          ".validate": "newData.isString() && newData.val().length <= 100"
+        },
+        "chatHistory": {
+          "$index": {
+            ".validate": "newData.hasChildren(['timestamp', 'message', 'response'])",
+            "timestamp": {
+              ".validate": "newData.isString()"
+            },
+            "message": {
+              ".validate": "newData.isString() && newData.val().length <= 1000"
+            },
+            "response": {
+              ".validate": "newData.isString() && newData.val().length <= 2000"
+            }
+          }
+        },
+        "recentTopics": {
+          "$index": {
+            ".validate": "newData.isString() && newData.val().length <= 200"
+          },
+          ".validate": "newData.val().length <= 5"
+        },
+        "preferences": {
+          ".validate": "newData.hasChildren(['favoriteFood', 'language'])",
+          "favoriteFood": {
+            ".validate": "newData.isString() && newData.val().length <= 50"
+          },
+          "language": {
+            ".validate": "newData.isString() && newData.val().length <= 20"
+          },
+          "favoriteColor": {
+            ".validate": "newData.isString() && newData.val().length <= 30"
+          },
+          "favoriteMusic": {
+            ".validate": "newData.isString() && newData.val().length <= 100"
+          },
+          "favoritePlace": {
+            ".validate": "newData.isString() && newData.val().length <= 100"
+          }
+        },
+        "sentiment": {
+          ".validate": "newData.isString() && ['positive', 'negative', 'neutral', 'angry', '普通'].contains(newData.val())"
+        },
+        "chatSummary": {
+          ".validate": "newData.isString() && newData.val().length <= 5000"
+        },
+        
+        // 不正なフィールドの追加を防ぐ
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
+    
+    // サーバーサイド管理用（Admin SDKのみアクセス可能）
+    "admin": {
+      ".read": "auth != null && auth.token.admin == true",
+      ".write": "auth != null && auth.token.admin == true"
+    },
+    
+    // 統計情報（読み取り専用）
+    "stats": {
+      ".read": "auth != null",
+      ".write": "auth != null && auth.token.admin == true"
+    },
+    
+    // その他の未定義パスへのアクセスを拒否
+    "$other": {
+      ".validate": false
+    }
+  }
+}
