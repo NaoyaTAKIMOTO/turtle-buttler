@@ -51,7 +51,7 @@ async function use_mcp_tool_fallback(server_name: string, tool_name: string, arg
       const response = await fetch(`${serviceUrl}/${tool_name}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(arguments)
+        body: JSON.stringify(args)
       });
       return await response.text();
     }
@@ -63,7 +63,7 @@ async function use_mcp_tool_fallback(server_name: string, tool_name: string, arg
       const response = await fetch(`${serviceUrl}/${tool_name}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(arguments)
+        body: JSON.stringify(args)
       });
       return await response.text();
     }
@@ -609,7 +609,8 @@ export async function getUserInfoHandler(userId: string): Promise<UserInfo> {
   // 本番環境では MCP ツールから取得
   try {
     const result = await callMcpTool('user-profile-server', 'get_user_profile', { userId });
-    const userInfo = JSON.parse(result); // MCPツールからの結果はJSON文字列として返される
+    const mcpResponse = JSON.parse(result);
+    const userInfo = JSON.parse(mcpResponse.content[0].text); // MCPツールからの結果を正しくパース
     return (userInfo as UserInfo) || {
       userId,
       userName: "",

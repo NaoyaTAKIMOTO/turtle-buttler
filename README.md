@@ -202,6 +202,17 @@ mise run deploy-db-rules-prod      # Deploy production rules
 mise run deploy-db-rules-secure    # Deploy high-security rules
 ```
 
+## Recent Updates
+
+### 2024-12-30: Firebase Realtime Database Issue Resolution
+- **Fixed**: MCP tool argument passing bug in HTTP fallback communication
+- **Fixed**: JSON response parsing for MCP tool responses from Firebase service
+- **Verified**: Complete conversation flow with real Firebase Realtime Database
+- **Confirmed**: Chat history persistence and retrieval working correctly
+- **Testing**: All test suites passing (unit, integration, e2e)
+
+The application now properly stores and retrieves conversation history in Firebase Realtime Database through the User Profile Service.
+
 ## Contributing
 
 1. Follow the established testing patterns

@@ -1,5 +1,5 @@
 [tools]
-node = "22.14.1"
+node = "20.19.3"
 
 [env]
 # Ensure npm scripts use the correct Node.js version
