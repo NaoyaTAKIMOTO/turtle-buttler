@@ -72,6 +72,23 @@ RAKUTEN_SERVER_URL=http://localhost:8081
 
 ### Installation
 
+1. **Install mise** (if not already installed):
+```bash
+# macOS
+brew install mise
+
+# Ubuntu/Debian
+curl https://mise.run | sh
+
+# Other systems: https://mise.jdx.dev/getting-started.html
+```
+
+2. **Install Node.js using mise**:
+```bash
+mise install
+```
+
+3. **Install dependencies and build**:
 ```bash
 npm install
 npm run build
@@ -156,6 +173,34 @@ The application is designed for cloud deployment:
 - **Environment Flexible**: Works in various cloud environments
 - **Scaling**: Horizontal scaling supported
 - **Monitoring**: Comprehensive logging and error tracking
+
+### Development Commands
+
+```bash
+# Build and run
+mise run install                   # Install dependencies
+mise run build                     # Build main application
+mise run build-all                 # Build all applications
+mise run start                     # Start application
+
+# Testing
+mise run test                      # Run all tests
+mise run test-unit                 # Run unit tests only
+mise run test-integration          # Run integration tests
+mise run test-e2e                  # Run e2e tests
+mise run test-all                  # Run all test suites
+
+# Deployment
+mise run setup                     # Setup GCP secrets
+mise run deploy                    # Deploy main application
+mise run deploy-mcp                # Deploy MCP services
+mise run deploy-all                # Deploy everything
+
+# Database rules
+mise run deploy-db-rules           # Deploy default rules
+mise run deploy-db-rules-prod      # Deploy production rules
+mise run deploy-db-rules-secure    # Deploy high-security rules
+```
 
 ## Contributing
 

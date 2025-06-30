@@ -7,24 +7,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ユーザーに理解を得てから実装に進んで。
 テストを通してからコミットして。
 timeoutはテスト失敗扱い。
-コミットする時にREADMEに反映する。
-make コマンドを利用して。
+コミットする前にREADMEに反映する。
+mise run コマンドを利用して。
 
 ## Development Commands
 
 ### Build & Run
 ```bash
+# Setup Node.js version using mise
+mise install
+
 # Install dependencies
-npm install
+mise run install
 
 # Build TypeScript
-npm run build
+mise run build
 
 # Start application
-npm start
+mise run start
 
 # Run tests
-npm test
+mise run test
 ```
 
 ### Docker
@@ -42,16 +45,16 @@ docker rm -f turtle-buttler || docker build -t turtle-butter . || true && docker
 ### GCP Deployment
 ```bash
 # Setup GCP secrets and permissions
-make setup
+mise run setup
 
 # Deploy main application
-make deploy
+mise run deploy
 
 # Deploy MCP services
-make deploy-mcp
+mise run deploy-mcp
 
 # Deploy everything
-make deploy-all
+mise run deploy-all
 ```
 
 ## Architecture Overview

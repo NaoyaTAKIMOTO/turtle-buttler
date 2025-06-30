@@ -1,0 +1,87 @@
+[tools]
+node = "22.14.1"
+
+[env]
+# Ensure npm scripts use the correct Node.js version
+PATH = "$PWD/node_modules/.bin:$PATH"
+
+[tasks.setup]
+description = "GCP シークレットのセットアップを実行"
+run = "bash infrastructure/scripts/setup_gcp.sh"
+
+[tasks.install]
+description = "Install dependencies"
+run = "npm install"
+
+[tasks.build]
+description = "Build the main application"
+run = "npm run build"
+
+[tasks.build-all]
+description = "Build all applications"
+depends = ["build"]
+run = "npm run build:apps"
+
+[tasks.test]
+description = "Run tests"
+run = "npm test"
+
+[tasks.test-unit]
+description = "Run unit tests"
+run = "npm run test:unit"
+
+[tasks.test-integration]
+description = "Run integration tests"
+run = "npm run test:integration"
+
+[tasks.test-e2e]
+description = "Run e2e tests"
+run = "npm run test:e2e"
+
+[tasks.test-all]
+description = "Run all tests"
+run = "npm run test:all"
+
+[tasks.start]
+description = "Start application"
+run = "npm start"
+
+[tasks.deploy]
+description = "Cloud Build を使用してアプリケーションをデプロイ"
+run = [
+  "gcloud config set project turtle-buttler",
+  "gcloud builds submit --config=infrastructure/cloudbuild/cloudbuild.yaml ."
+]
+
+[tasks.deploy-mcp]
+description = "MCP server のデプロイ"
+run = "bash infrastructure/scripts/deploy_mcp_services.sh"
+
+[tasks.deploy-db-rules]
+description = "Firebase Realtime Database セキュリティルールのデプロイ"
+run = "firebase deploy --only database --project turtle-buttler-e34e9"
+
+[tasks.deploy-db-rules-prod]
+description = "本番用セキュリティルールのデプロイ"
+run = [
+  "cp database-rules-production.json database.rules.json",
+  "firebase deploy --only database --project turtle-buttler-e34e9",
+  "rm database.rules.json"
+]
+
+[tasks.deploy-db-rules-secure]
+description = "高セキュリティルールのデプロイ"
+run = [
+  "cp database-rules-secure.json database.rules.json",
+  "firebase deploy --only database --project turtle-buttler-e34e9",
+  "rm database.rules.json"
+]
+
+[tasks.deploy-all]
+description = "すべてのサービスをデプロイ"
+depends = ["setup"]
+run = [
+  "bash infrastructure/scripts/deploy_mcp_services.sh",
+  "gcloud config set project turtle-buttler",
+  "gcloud builds submit --config=infrastructure/cloudbuild/cloudbuild.yaml ."
+]
