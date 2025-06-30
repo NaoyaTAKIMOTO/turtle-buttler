@@ -16,7 +16,7 @@ describe('User Profile Service', () => {
     });
 
     // モックエンドポイント
-    app.post('/get_user_profile', (req, res) => {
+    app.post('/get_user_profile', (req: any, res: any) => {
       const { userId } = req.body;
       if (!userId) {
         return res.status(400).json({ error: 'Invalid userId' });
@@ -37,7 +37,7 @@ describe('User Profile Service', () => {
       });
     });
 
-    app.post('/update_user_profile', (req, res) => {
+    app.post('/update_user_profile', (req: any, res: any) => {
       const { userId, profileData } = req.body;
       if (!userId || !profileData) {
         return res.status(400).json({ error: 'Invalid userId or profileData' });
@@ -60,7 +60,7 @@ describe('User Profile Service', () => {
 
   describe('Health Check', () => {
     it('should return server status', async () => {
-      const response = await request(app)
+      const response = await request(app as any)
         .get('/');
       
       expect(response.status).to.equal(200);
@@ -72,7 +72,7 @@ describe('User Profile Service', () => {
     it('should return user profile for valid userId', async () => {
       const testUserId = 'test-user-123';
       
-      const response = await request(app)
+      const response = await request(app as any)
         .post('/get_user_profile')
         .send({ userId: testUserId });
       
@@ -86,7 +86,7 @@ describe('User Profile Service', () => {
     });
 
     it('should return error for missing userId', async () => {
-      const response = await request(app)
+      const response = await request(app as any)
         .post('/get_user_profile')
         .send({});
       
@@ -103,7 +103,7 @@ describe('User Profile Service', () => {
         favoriteFood: '寿司'
       };
       
-      const response = await request(app)
+      const response = await request(app as any)
         .post('/update_user_profile')
         .send({ userId: testUserId, profileData });
       
@@ -117,7 +117,7 @@ describe('User Profile Service', () => {
     });
 
     it('should return error for missing profileData', async () => {
-      const response = await request(app)
+      const response = await request(app as any)
         .post('/update_user_profile')
         .send({ userId: 'test-user-123' });
       

@@ -1,37 +1,35 @@
-version: '3.8'
-
 services:
   user-profile-service:
     build:
-      context: ../../apps/user-profile-service
+      context: ./apps/user-profile-service
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
     environment:
       - PORT=8080
     env_file:
-      - ../../.env
+      - .env
     restart: always
     networks:
       - turtle-network
 
   rakuten-server:
     build:
-      context: ../../apps/rakuten-server
+      context: ./apps/rakuten-server
       dockerfile: Dockerfile
     ports:
       - "8081:8080"
     environment:
       - PORT=8080
     env_file:
-      - ../../.env
+      - .env
     restart: always
     networks:
       - turtle-network
 
   kame-buttler:
     build:
-      context: ../../
+      context: .
       dockerfile: infrastructure/docker/Dockerfile.kame-buttler
     ports:
       - "8082:8080"
@@ -40,7 +38,7 @@ services:
       - USER_PROFILE_SERVICE_URL=http://user-profile-service:8080
       - RAKUTEN_SERVER_URL=http://rakuten-server:8080
     env_file:
-      - ../../.env
+      - .env
     restart: always
     depends_on:
       - user-profile-service
