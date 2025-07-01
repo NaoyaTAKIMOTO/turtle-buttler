@@ -1,16 +1,16 @@
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-問題について原因を調査して説明して。
-また実装計画について全体像を説明して。
-ユーザーに理解を得てから実装に進んで。
-テストを通してからコミットして。
-コミットする前にREADMEに反映する。
-コミットしたらデプロイして。
-timeoutはテスト失敗扱い。
-mise run コマンドを利用して。
-動作確認でsleepの時間を伸ばすよりは他の解決方法を優先して。
+## Rule for claude
+- 問題について原因を調査して説明して。
+- また実装計画について全体像を説明して。
+- ユーザーに理解を得てから実装に進んで。
+- テストを通してからコミットして。
+- コミットする前にREADMEに反映する。
+- コミットしたらデプロイして。
+- timeoutはテスト失敗扱い。
+- mise run コマンドを利用して。
+- 動作確認でsleepの時間を伸ばすよりは他の解決方法を優先して。
 
 ## Development Commands
 

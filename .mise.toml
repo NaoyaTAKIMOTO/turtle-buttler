@@ -1,5 +1,6 @@
 [tools]
 node = "20.19.3"
+python = "3.11"
 
 [env]
 # Ensure npm scripts use the correct Node.js version
@@ -7,7 +8,7 @@ PATH = "$PWD/node_modules/.bin:$PATH"
 
 [tasks.setup]
 description = "GCP シークレットのセットアップを実行"
-run = "bash infrastructure/scripts/setup_gcp.sh"
+run = "export CLOUDSDK_PYTHON=$(mise which python) && bash infrastructure/scripts/setup_gcp.sh"
 
 [tasks.install]
 description = "Install dependencies"
@@ -49,6 +50,7 @@ run = "npm start"
 [tasks.deploy]
 description = "Cloud Build を使用してアプリケーションをデプロイ"
 run = [
+  "export CLOUDSDK_PYTHON=$(mise which python)",
   "gcloud config set project turtle-buttler",
   "gcloud builds submit --config=infrastructure/cloudbuild/cloudbuild.yaml ."
 ]
@@ -81,6 +83,7 @@ run = [
 description = "すべてのサービスをデプロイ"
 depends = ["setup"]
 run = [
+  "export CLOUDSDK_PYTHON=$(mise which python)",
   "bash infrastructure/scripts/deploy_mcp_services.sh",
   "gcloud config set project turtle-buttler",
   "gcloud builds submit --config=infrastructure/cloudbuild/cloudbuild.yaml ."
