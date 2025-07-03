@@ -2,6 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 ## Rule for claude
+say below list every time.
 - 問題について原因を調査して説明して。
 - また実装計画について全体像を説明して。
 - ユーザーに理解を得てから実装に進んで。
@@ -9,9 +10,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - コミットする前にREADMEに反映する。
 - コミットしたらデプロイして。
 - timeoutはテスト失敗扱い。
+- テストは通過するまで対策する。
 - mise run コマンドを利用して。
 - 動作確認でsleepの時間を伸ばすよりは他の解決方法を優先して。
-
 ## Development Commands
 
 ### Build & Run
@@ -116,3 +117,4 @@ Critical environment variables:
 ### TODO
 - [x] promptがおかしい。ユーザーの発話に対する返信だけでなく、過去の発言に対する返事もしてしまう。
 - [x] デプロイできるように修正
+- [x] 楽天で検索する旨を申し出るが実際には検索しないケースがあるのでテストでカメ執事が楽天から商品を検索してそのリンクを貼るところまでを確認したい
