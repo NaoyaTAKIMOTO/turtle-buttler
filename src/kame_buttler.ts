@@ -8,6 +8,52 @@ require('dotenv').config();
 // MCPツールを呼び出すためのヘルパー関数
 declare function use_mcp_tool(server_name: string, tool_name: string, arguments: any): Promise<any>;
 
+// スタンプIDから感情を分析する関数
+export function analyzeStickerEmotion(packageId: string, stickerId: string): string {
+  // LINE公式スタンプの感情マッピング
+  const emotionMap: { [key: string]: string } = {
+    // Brown & Cony (packageId: 1)
+    '1/1': 'happy',     // Brown happy
+    '1/2': 'love',      // Brown love
+    '1/3': 'sad',       // Brown sad
+    '1/4': 'angry',     // Brown angry
+    '1/5': 'surprised', // Brown surprised
+    '1/6': 'sleepy',    // Brown sleepy
+    '1/7': 'confused',  // Brown confused
+    '1/8': 'excited',   // Brown excited
+    '1/9': 'crying',    // Brown crying
+    '1/10': 'laughing', // Brown laughing
+    
+    // Moon (packageId: 2)
+    '2/1': 'happy',
+    '2/2': 'love',
+    '2/3': 'sad',
+    '2/4': 'angry',
+    '2/5': 'surprised',
+    
+    // 基本感情スタンプ (packageId: 11537)
+    '11537/52002734': 'happy',
+    '11537/52002735': 'sad',
+    '11537/52002736': 'angry',
+    '11537/52002737': 'love',
+    '11537/52002738': 'surprised',
+    '11537/52002739': 'tired',
+    '11537/52002740': 'excited',
+    
+    // よく使われるスタンプの感情推定
+    // 数字が小さい方が基本的にポジティブ、大きい方がネガティブな傾向
+  };
+  
+  const key = `${packageId}/${stickerId}`;
+  
+  if (emotionMap[key]) {
+    return emotionMap[key];
+  }
+  
+  // 未知のスタンプは一律neutralとして扱う
+  return 'neutral';
+}
+
 // MCPツール用のフォールバック実装（テスト環境および未実装時）
 async function use_mcp_tool_fallback(server_name: string, tool_name: string, args: any): Promise<any> {
   if (process.env.NODE_ENV === 'test') {
@@ -158,14 +204,25 @@ export async function handleLineRequest(body: LineRequestBody) {
 
     // 取得したデータから、応答用のトークンを取得
     const replyToken: string = eventData.replyToken;
-    // 取得したデータから、メッセージ種別を取得 (現状はtextメッセージのみを想定しているため、必要に応じて分岐)
-    // const messageType: string = eventData.message.type; 
-    if (eventData.message.type !== 'text') {
-      console.log(`Unsupported message type: ${eventData.message.type}. Skipping.`);
-      continue; // テキストメッセージ以外はスキップ (またはエラー応答)
+    // 取得したデータから、メッセージ種別を取得
+    const messageType: string = eventData.message.type;
+    
+    let userMessage: string = '';
+    let stickerInfo: any = null;
+    
+    if (messageType === 'text') {
+      userMessage = eventData.message.text;
+    } else if (messageType === 'sticker') {
+      stickerInfo = {
+        packageId: eventData.message.packageId,
+        stickerId: eventData.message.stickerId
+      };
+      const stickerEmotion = analyzeStickerEmotion(stickerInfo.packageId, stickerInfo.stickerId);
+      userMessage = `[スタンプ: ${stickerInfo.packageId}/${stickerInfo.stickerId}] (感情: ${stickerEmotion})`;
+    } else {
+      console.log(`Unsupported message type: ${messageType}. Skipping.`);
+      continue; // その他のメッセージタイプはスキップ
     }
-    // 取得したデータから、ユーザーが投稿したメッセージを取得
-    const userMessage: string = eventData.message.text;
     const userId: string = eventData.source.userId;
 
     // ユーザー名更新 (応答が必要な場合は replyToken を使う)

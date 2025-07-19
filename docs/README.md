@@ -5,7 +5,9 @@
 - **バージョン**: 1.0.0
 - **概要**: TypeScript/Node.js で実装された関西弁を話すカメ執事キャラクターの LINE Bot。  
   マイクロサービス・アーキテクチャを採用し、Firebase、Google Sheets、複数のLLM API、楽天APIを活用した高機能な対話システムです。
-
+- 実装したいこと
+  - ✅ スタンプ対応済み - ユーザーが送信したスタンプから感情を読み取り、適切な関西弁で応答
+  - 🔄 計画中: Gemini Vision APIによるスタンプ画像認識での高精度感情分類
 ## アーキテクチャ
 
 ### プロジェクト構造
@@ -249,6 +251,47 @@ docker-compose -f infrastructure/docker/docker-compose.yml up -d
 - **環境変数分離**: 開発・本番環境の適切な分離
 
 ## 今後の開発方針
+
+### 🎯 次期実装予定: Gemini Vision API スタンプ画像認識
+
+#### 実装計画
+1. **スタンプ画像取得**
+   - LINE スタンプ画像URL構築: `https://stickershop.line-scdn.net/stickershop/v1/sticker/{stickerId}/android/sticker.png`
+   - 画像ダウンロード・キャッシュ機能
+
+2. **Gemini Vision API統合**
+   ```typescript
+   // 既存のGemini API認証を活用
+   const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent', {
+     headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY },
+     body: JSON.stringify({
+       contents: [{
+         parts: [
+           { text: "このLINEスタンプの感情を分析してください。happy, sad, angry, surprised, love, neutral のいずれかで答えてください。" },
+           { inline_data: { mime_type: "image/png", data: base64Image } }
+         ]
+       }]
+     })
+   });
+   ```
+
+3. **感情分析ロジック拡張**
+   - 既知スタンプマッピング → Gemini Vision API → neutralフォールバック
+   - 分析結果のキャッシュ機能（Firebase/ファイル）
+   - コスト最適化: 人気スタンプの事前分析
+
+4. **パフォーマンス最適化**
+   - 画像圧縮・リサイズ処理
+   - 非同期処理による応答速度維持
+   - エラーハンドリング強化
+
+#### 技術的利点
+- **既存認証活用**: 現在のGEMINI_API_KEYをそのまま利用
+- **高精度認識**: 表情、キャラクター、テキストを総合的に分析
+- **コスト効率**: Gemini Visionは他のVision APIより安価
+- **日本語対応**: スタンプの日本語テキストも正確に認識
+
+### 🚀 その他の開発方針
 - **多言語対応**: 関西弁以外の方言・言語サポート
 - **高度な感情分析**: より精密な感情理解とパーソナライゼーション
 - **商品推奨精度向上**: ユーザー行動学習とレコメンドアルゴリズム改善

@@ -7,7 +7,8 @@ import {
   updateFavoriteColor,
   updateFavoriteMusic,
   updateFavoritePlace,
-  updateChatHistory
+  updateChatHistory,
+  analyzeStickerEmotion
 } from './kame_buttler';
 
 interface ChatHistoryEntry {
@@ -218,6 +219,35 @@ describe('Unit Tests - Pure Functions', () => {
         expect(time2).to.be.greaterThan(time1);
         done();
       }, 10);
+    });
+  });
+
+  describe('analyzeStickerEmotion', () => {
+    it('should return correct emotion for known sticker (happy)', () => {
+      const emotion = analyzeStickerEmotion('1', '1');
+      expect(emotion).to.equal('happy');
+    });
+
+    it('should return correct emotion for known sticker (sad)', () => {
+      const emotion = analyzeStickerEmotion('1', '3');
+      expect(emotion).to.equal('sad');
+    });
+
+    it('should return correct emotion for known sticker (love)', () => {
+      const emotion = analyzeStickerEmotion('1', '2');
+      expect(emotion).to.equal('love');
+    });
+
+    it('should return neutral for unknown package/sticker combinations', () => {
+      const emotion1 = analyzeStickerEmotion('999', '3');
+      const emotion2 = analyzeStickerEmotion('999', '12');
+      const emotion3 = analyzeStickerEmotion('999', '14');
+      const emotion4 = analyzeStickerEmotion('999', '20');
+      
+      expect(emotion1).to.equal('neutral');
+      expect(emotion2).to.equal('neutral');
+      expect(emotion3).to.equal('neutral');
+      expect(emotion4).to.equal('neutral');
     });
   });
 

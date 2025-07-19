@@ -1,0 +1,34 @@
+{
+  "events": [
+    {
+      "replyToken": "dummyReplyToken",
+      "type": "message",
+      "timestamp": 1234567890,
+      "source": {
+        "userId": "U1234abcd",
+        "type": "user"
+      },
+      "message": {
+        "type": "sticker",
+        "id": "1234567890123",
+        "packageId": "1",
+        "stickerId": "1"
+      }
+    },
+    {
+      "replyToken": "dummyReplyToken2",
+      "type": "message",
+      "timestamp": 1234567891,
+      "source": {
+        "userId": "U1234abcd",
+        "type": "user"
+      },
+      "message": {
+        "type": "sticker",
+        "id": "1234567890124",
+        "packageId": "1",
+        "stickerId": "3"
+      }
+    }
+  ]
+}
