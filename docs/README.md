@@ -111,9 +111,27 @@ npm start
 make build && npm start
 ```
 
-## GCP デプロイ
+## CI/CD & デプロイ
 
-### 前提条件
+### 🚀 自動デプロイ（推奨）
+- **CI**: PRでテスト自動実行
+- **CD**: mainブランチへのpushで自動デプロイ
+- **設定**: GitHub Actions + Google Cloud Build
+
+```bash
+# 開発フロー
+git checkout -b feature/new-feature
+# コード変更
+git commit -m "Add new feature"
+git push origin feature/new-feature
+# PR作成 → CI実行 → レビュー → マージ → 自動デプロイ
+```
+
+詳細: [`.github/DEPLOYMENT.md`](.github/DEPLOYMENT.md)
+
+### 🛠️ 手動デプロイ
+
+#### 前提条件
 ```bash
 # GCP CLI 認証
 gcloud auth login
@@ -123,21 +141,22 @@ gcloud config set project turtle-buttler
 # .env ファイルを作成し、必要な環境変数を設定
 ```
 
-### デプロイコマンド
+#### デプロイコマンド
 ```bash
 # 全サービスデプロイ（推奨）
-make deploy-all
+mise run deploy-all
 
 # 個別デプロイ
-make setup          # GCP シークレットセットアップ
-make deploy-mcp     # マイクロサービスデプロイ
-make deploy         # メインアプリケーションデプロイ
+mise run setup          # GCP シークレットセットアップ
+mise run deploy-mcp     # マイクロサービスデプロイ
+mise run deploy         # メインアプリケーションデプロイ
 ```
 
-### 現在のデプロイ先
+### 📍 現在のデプロイ先
 - **メインアプリケーション**: `https://turtle-buttler-65391589168.asia-northeast1.run.app`
 - **リージョン**: asia-northeast1 (東京)
 - **プラットフォーム**: Google Cloud Run
+- **CI/CD**: GitHub Actions
 
 ## テスト
 

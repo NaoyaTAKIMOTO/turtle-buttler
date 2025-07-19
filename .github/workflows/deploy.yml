@@ -1,0 +1,122 @@
+name: Deploy to Google Cloud Run
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  PROJECT_ID: turtle-buttler
+  GAR_LOCATION: asia-northeast1
+  SERVICE: turtle-buttler
+  REGION: asia-northeast1
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.19.3'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build TypeScript
+      run: npm run build
+
+    - name: Run tests
+      run: npm test
+      env:
+        NODE_ENV: test
+        # テスト用のモック環境変数（実際のAPIキーは不要）
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        CHANNEL_ACCESS: test-channel-access
+        CHANNEL_SECRET: test-channel-secret
+        CREDENTIALS_ADMIN: dGVzdA==
+        CREDENTIALS: dGVzdA==
+        FIREBASE_URL: https://test.firebaseio.com
+        SPREADSHEET_ID: test-spreadsheet-id
+        CO_API_KEY: test-co-api-key
+        RAKUTEN_APPLICATION_ID: test-rakuten-app-id
+        RAKUTEN_AFFILIATE_ID: test-rakuten-affiliate-id
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Google Auth
+      id: auth
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+    - name: Configure Docker to use gcloud as a credential helper
+      run: |-
+        gcloud auth configure-docker gcr.io
+
+    - name: Submit to Cloud Build
+      run: |-
+        gcloud builds submit \
+          --config=infrastructure/cloudbuild/cloudbuild.yaml \
+          --project=$PROJECT_ID \
+          .
+
+    - name: Get Cloud Run URL
+      id: deploy-url
+      run: |-
+        URL=$(gcloud run services describe $SERVICE \
+          --region=$REGION \
+          --project=$PROJECT_ID \
+          --format='value(status.url)')
+        echo "url=$URL" >> $GITHUB_OUTPUT
+
+    - name: Show deployment result
+      run: |-
+        echo "🚀 Deployment successful!"
+        echo "📱 Service URL: ${{ steps.deploy-url.outputs.url }}"
+        echo "🔗 Cloud Console: https://console.cloud.google.com/run/detail/$REGION/$SERVICE/metrics?project=$PROJECT_ID"
+
+  deploy-microservices:
+    needs: deploy
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Google Auth
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+    - name: Deploy MCP Services
+      run: |-
+        chmod +x infrastructure/scripts/deploy_mcp_services.sh
+        bash infrastructure/scripts/deploy_mcp_services.sh
+
+    - name: Deploy Database Rules
+      run: |-
+        npm install -g firebase-tools
+        firebase deploy --only database --project turtle-buttler-e34e9 --token "${{ secrets.FIREBASE_TOKEN }}"
